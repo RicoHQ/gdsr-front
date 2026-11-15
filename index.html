@@ -33,7 +33,10 @@
         <input id="hq" type="search" placeholder="Search songs, levels, IDs, creators…" autocomplete="off" enterkeyhint="search">
       </label>
     </form>
-    <a class="acct" id="acctBtn" href="#login"><span class="av">?</span><span class="nm">Sign in</span></a>
+    <div class="menu-wrap">
+      <button class="acct" id="acctBtn" type="button" aria-haspopup="menu" aria-expanded="false"><span class="av">?</span><span class="nm">Sign in</span></button>
+      <div class="menu" id="acctMenu" role="menu" hidden></div>
+    </div>
   </div>
 </header>
 
@@ -41,16 +44,8 @@
 
 <footer>
   <div class="ft">
-    <div>
-      <h4>How scores work</h4>
-      <p>Every song is scored from <b>0</b> to <b>100</b>, shown to two decimals, from the average of signed-in users' votes.</p>
-      <p><b>Mashups:</b> <code>(Song A + Song B + Mashing quality) ÷ 3</code>. Votes on a mashup rate its mashing quality.</p>
-    </div>
-    <div>
-      <h4>About</h4>
-      <p>Each level uses one song ID. Every mashup, cover or remix uploaded to that ID is listed on the level's page.</p>
-      <p>Sign in to vote, pick favourite parts, build playlists and request new levels or songs.</p>
-    </div>
+    <span class="ft-brand">GDSR</span>
+    <nav class="ft-links" aria-label="Footer"><a href="#list">The List</a><a href="#levels">Levels</a><a href="#playlists">Playlists</a><a href="#settings">Settings</a></nav>
   </div>
 </footer>
 

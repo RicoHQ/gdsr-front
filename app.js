@@ -83,6 +83,14 @@ function download(filename, text, type = "application/json"){
 async function copyText(t, label = "Copied"){
   try { await navigator.clipboard.writeText(t); toast(label); } catch(_){ toast("Couldn't copy. Select and copy manually.", true); }
 }
+function storageError(e){
+  const m = String(e && e.message || e);
+  if (/bucket not found/i.test(m)) return "Audio storage isn't set up yet. An admin needs to run supabase/migration.sql to create the audio bucket.";
+  if (/row-level security|unauthorized|not allowed|403/i.test(m)) return "You don't have permission to upload there. Make sure you're signed in.";
+  if (/exceeded|too large|payload/i.test(m)) return `That file is too large. The limit is ${CONFIG.MAX_AUDIO_MB} MB.`;
+  if (/mime|content type/i.test(m)) return "That file type isn't allowed. Use MP3, OGG, WAV or M4A.";
+  return m;
+}
 function readFile(file){ return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(file); }); }
 
 /* CSV */
@@ -159,6 +167,10 @@ const ICON = {
   back:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>',
   up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg>',
   down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>',
+  user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  logout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
   ext:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>'
 };
 
@@ -173,6 +185,10 @@ const DIFF_ORDER = Object.keys(DIFF);
 
 const DB = { loaded:false, error:null, levels:[], songs:[], songIds:[], stats:{}, statsSource:"view", songById:{}, levelById:{} };
 const ME = { user:null, profile:null, isAdmin:false, ready:false };
+const PREF_DEFAULTS = { autoplay:true, shuffleDefault:false, compact:false, reduceMotion:false, showNoAudio:true };
+const PREFS = Object.assign({}, PREF_DEFAULTS, store.get("prefs", {}));
+function setPref(k, v){ PREFS[k] = v; store.set("prefs", PREFS); applyPrefs(); }
+function applyPrefs(){ document.body.classList.toggle("compact", !!PREFS.compact); document.body.classList.toggle("reduce-motion", !!PREFS.reduceMotion); }
 const state = {
   listType:"all", listSort:"score", listQ:"", lvQ:"", lvDiff:"all", lvSort:"name",
   searchQ:"", searchTab:"all", levelQ:{}, levelType:{}, chartSel:{},
@@ -249,11 +265,27 @@ async function refreshMe(session){
 }
 const myName = () => (ME.profile && ME.profile.username) || (ME.user && ((ME.user.user_metadata || {}).username || (ME.user.email || "").split("@")[0])) || "";
 function renderHeader(){
-  const a = $("#acctBtn");
-  if (ME.user){ const n = myName(); a.href = "#account"; a.innerHTML = `<span class="av">${esc(n.slice(0,1).toUpperCase() || "U")}</span><span class="nm">${esc(n)}</span>`; }
-  else { a.href = "#login"; a.innerHTML = `<span class="av">?</span><span class="nm">Sign in</span>`; }
+  const a = $("#acctBtn"), menu = $("#acctMenu"), n = myName();
+  a.innerHTML = ME.user ? `<span class="av">${esc(n.slice(0,1).toUpperCase() || "U")}</span><span class="nm">${esc(n)}</span>` : `<span class="av">?</span><span class="nm">Sign in</span>`;
+  a.setAttribute("aria-label", ME.user ? `Account menu for ${n}` : "Sign in or create an account");
+  const item = (href, icon, label, extra = "") => `<a href="${href}" role="menuitem" ${extra}>${icon}${esc(label)}</a>`;
+  menu.innerHTML = ME.user
+    ? `<div class="mh"><b>${esc(n)}</b><span>${esc(ME.user.email || "")}</span></div>
+       ${item("#account", ICON.user, "Profile")}${item("#playlists", ICON.list, "My playlists")}${item("#request", ICON.plus, "Request a level or song")}
+       ${ME.isAdmin ? item("#admin", ICON.shield, "Admin panel") : ""}<hr>${item("#settings", ICON.gear, "Settings")}
+       <button type="button" role="menuitem" class="danger" id="menuSignOut">${ICON.logout}Sign out</button>`
+    : `${item("#login", ICON.user, "Sign in")}${item("#signup", ICON.plus, "Create account")}<hr>${item("#settings", ICON.gear, "Settings")}`;
   $("#adminLink").hidden = !ME.isAdmin;
+  const so = $("#menuSignOut");
+  if (so) so.onclick = signOut;
 }
+function toggleMenu(open){
+  const a = $("#acctBtn"), m = $("#acctMenu");
+  open = open === undefined ? m.hidden : open;
+  m.hidden = !open; a.setAttribute("aria-expanded", String(open));
+  if (open){ const f = $("a,button", m); if (f) f.focus(); }
+}
+async function signOut(){ toggleMenu(false); await sb.auth.signOut(); toast("Signed out"); location.hash = "list"; }
 function requireLogin(what){
   return `<div class="card card-pad" style="max-width:520px;margin:30px auto;text-align:center"><h2>Sign in to ${esc(what)}</h2>
     <p class="muted">You need an account for this. It only takes a minute.</p>
@@ -374,7 +406,7 @@ async function openAddToPlaylist(songId){
    MUSIC PLAYER
    ===================================================================== */
 const P = {
-  audio:new Audio(), queue:[], index:-1, shuffle:store.get("shuffle", false), repeat:store.get("repeat", "off"), source:"",
+  audio:new Audio(), queue:[], index:-1, shuffle:store.get("shuffle", store.get("prefs", {}).shuffleDefault || false), repeat:store.get("repeat", "off"), source:"",
   get cur(){ return DB.songById[this.queue[this.index]] || null; },
   playable(id){ const s = DB.songById[id]; return !!(s && s.audio_file); },
   playList(ids, start = 0, source = ""){
@@ -486,7 +518,7 @@ P.audio.addEventListener("timeupdate", updateTime);
 P.audio.addEventListener("loadedmetadata", updateTime);
 P.audio.addEventListener("play", () => { renderPlayer(); markPlaying(); });
 P.audio.addEventListener("pause", () => { renderPlayer(); markPlaying(); });
-P.audio.addEventListener("ended", () => P.next(true));
+P.audio.addEventListener("ended", () => { if (PREFS.autoplay || P.repeat === "one") P.next(true); else { P.audio.currentTime = 0; renderPlayer(); markPlaying(); } });
 P.audio.addEventListener("error", () => { if (P.cur) toast("Couldn't play this audio file.", true); });
 
 /* =====================================================================
@@ -581,7 +613,7 @@ function viewList(){
 function listFiltered(){
   const sorters = {score:byScore, votes:(a,b) => voteCount(b) - voteCount(a), newest:(a,b) => String(b.created_at).localeCompare(String(a.created_at)),
     length:(a,b) => (parseLen(b.length) || 0) - (parseLen(a.length) || 0), name:(a,b) => a.name.localeCompare(b.name)};
-  return DB.songs.filter(s => (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(sorters[state.listSort]);
+  return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(sorters[state.listSort]);
 }
 function renderListBody(){
   const rankMap = new Map(ranked().filter(s => overall(s) !== null).map((s, i) => [s, i + 1]));
@@ -663,7 +695,7 @@ function viewLevel(lv){
 }
 function levelSongsFiltered(lv){
   const q = state.levelQ[lv.id] || "", t = state.levelType[lv.id] || "all";
-  return songsFor(lv.song_id).filter(s => (t === "all" || s.type === t) && matches(songHay(s), q));
+  return songsFor(lv.song_id).filter(s => (PREFS.showNoAudio || s.audio_file) && (t === "all" || s.type === t) && matches(songHay(s), q));
 }
 function renderLevelSongs(lv){
   const all = songsFor(lv.song_id), list = levelSongsFiltered(lv), q = state.levelQ[lv.id] || "";
@@ -984,41 +1016,125 @@ function mountAuth(mode){
    VIEW: ACCOUNT
    ===================================================================== */
 function viewAccount(){
-  if (!ME.user) return requireLogin("see your account");
-  return `<section class="hero single"><div><p class="eyebrow">Account</p><h1>${esc(myName())}</h1><p class="lead">${esc(ME.user.email || "")}${ME.isAdmin ? ` · <span class="badge admin">Admin</span>` : ""}</p></div></section>
-  <div class="song-grid" style="margin-top:0">
-    <div class="col-main">
-      <section class="card card-pad"><div class="section-head" style="margin:0"><h3>My requests</h3><a class="btn sm" href="#request">${ICON.plus} New request</a></div><div id="myReqs"><p class="muted small">Loading…</p></div></section>
-      <section class="card card-pad"><h3>My votes</h3><div id="myVotes"><p class="muted small">Loading…</p></div></section>
-    </div>
-    <aside class="col-side">
-      <section class="card card-pad"><h3>Profile</h3>
-        <form class="form" id="profForm" style="margin-top:14px"><label class="f">Username<input class="input" name="username" value="${esc(myName())}" minlength="3" maxlength="24" required></label>
-          <button class="btn primary" type="submit">Save</button></form></section>
-      <section class="card card-pad"><h3>Password</h3>
-        <form class="form" id="pwForm" style="margin-top:14px"><label class="f">New password<input class="input" name="password" type="password" minlength="8" autocomplete="new-password" required></label>
-          <button class="btn" type="submit">Change password</button></form></section>
-      <section class="card card-pad"><div class="btns"><a class="btn" href="#playlists">${ICON.list} My playlists</a>${ME.isAdmin ? `<a class="btn" href="#admin">Admin panel</a>` : ""}<button class="btn danger" id="signOut" type="button">Sign out</button></div></section>
-    </aside></div>`;
+  if (!ME.user) return requireLogin("see your profile");
+  const n = myName();
+  return `<section class="page-head" style="margin-bottom:18px"><div style="display:flex;gap:16px;align-items:center">
+      <div class="avatar-lg">${esc(n.slice(0,1).toUpperCase() || "U")}</div>
+      <div><h1 style="font-size:30px">${esc(n)}</h1><p class="muted" style="margin:4px 0 0">${ME.isAdmin ? `<span class="badge admin">Admin</span> · ` : ""}Member since ${dateFmt(ME.profile && ME.profile.created_at || ME.user.created_at)}</p></div></div>
+    <div class="btns"><a class="btn" href="#settings">${ICON.gear} Settings</a><a class="btn primary" href="#request">${ICON.plus} New request</a></div></section>
+  <div class="stats" id="profStats" style="margin-bottom:18px">
+    <div class="stat"><b id="stVotes">–</b><span>Votes</span></div><div class="stat"><b id="stReqs">–</b><span>Requests</span></div>
+    <div class="stat"><b id="stApproved">–</b><span>Approved</span></div><div class="stat"><b id="stPl">–</b><span>Playlists</span></div></div>
+  <div class="song-grid" style="margin-top:0;grid-template-columns:1fr 1fr">
+    <section class="card card-pad"><h3>My requests</h3><div id="myReqs"><p class="muted small">Loading…</p></div></section>
+    <section class="card card-pad"><h3>My votes</h3><div id="myVotes"><p class="muted small">Loading…</p></div></section>
+  </div>`;
 }
 async function mountAccount(){
   if (!ME.user) return;
-  $("#signOut").onclick = async () => { await sb.auth.signOut(); toast("Signed out"); location.hash = "list"; };
-  $("#profForm").addEventListener("submit", async e => { e.preventDefault(); const username = new FormData(e.target).get("username").trim();
-    try { await run(sb.from("profiles").update({username}).eq("id", ME.user.id)); await refreshMe((await sb.auth.getSession()).data.session); toast("Profile saved"); render({keepScroll:true}); } catch(err){ toast(err.message, true); } });
-  $("#pwForm").addEventListener("submit", async e => { e.preventDefault(); const password = new FormData(e.target).get("password");
-    if (password.length < 8){ toast("Password must be at least 8 characters.", true); return; }
-    try { await run(sb.auth.updateUser({password})); e.target.reset(); toast("Password changed"); } catch(err){ toast(err.message, true); } });
-  const [lr, sr, vt] = await Promise.allSettled([
+  const [lr, sr, vt, pl] = await Promise.allSettled([
     run(sb.from("level_requests").select("*").eq("user_id", ME.user.id).order("created_at", {ascending:false})),
     run(sb.from("song_requests").select("*").eq("user_id", ME.user.id).order("created_at", {ascending:false})),
-    run(sb.from("votes").select("*").eq("user_id", ME.user.id).order("created_at", {ascending:false}))
+    run(sb.from("votes").select("*").eq("user_id", ME.user.id).order("created_at", {ascending:false})),
+    PL.list()
   ]);
   const reqs = [...(lr.value ? lr.value.data.map(r => ({...r, kind:"Level"})) : []), ...(sr.value ? sr.value.data.map(r => ({...r, kind:"Song"})) : [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const mr = $("#myReqs"); if (!mr) return;
-  mr.innerHTML = reqs.length ? `<ul class="mini-list">${reqs.map(r => `<li><div class="mi"><span class="grow"><span class="nm">${esc(r.kind)}: ${esc(r.name || "Untitled")}</span><span class="sb">${dateFmt(r.created_at)}${r.admin_note ? ` · Admin note: ${esc(r.admin_note)}` : ""}</span></span>${statusBadge(r.status)}</div></li>`).join("")}</ul>` : `<p class="muted small">No requests yet.</p>`;
   const votes = vt.value ? vt.value.data : [];
+  const mr = $("#myReqs"); if (!mr) return;
+  $("#stVotes").textContent = votes.length; $("#stReqs").textContent = reqs.length;
+  $("#stApproved").textContent = reqs.filter(r => r.status === "approved").length; $("#stPl").textContent = pl.value ? pl.value.length : 0;
+  mr.innerHTML = reqs.length ? `<ul class="mini-list">${reqs.map(r => `<li><div class="mi"><span class="grow"><span class="nm">${esc(r.kind)}: ${esc(r.name || "Untitled")}</span><span class="sb">${dateFmt(r.created_at)}${r.admin_note ? ` · Admin note: ${esc(r.admin_note)}` : ""}</span></span>${statusBadge(r.status)}</div></li>`).join("")}</ul>` : `<p class="muted small">No requests yet.</p>`;
   $("#myVotes").innerHTML = votes.length ? `<ul class="mini-list">${votes.map(v => { const s = DB.songById[v.song]; return `<li><a href="#song-${esc(v.song)}"><span class="grow"><span class="nm">${esc(s ? s.name : "Deleted song")}</span><span class="sb">${dateFmt(v.created_at)}</span></span><b class="mono" style="color:${scoreColor(+v.score)}">${Math.round(+v.score)}</b></a></li>`; }).join("")}</ul>` : `<p class="muted small">You haven't voted yet. Open any song to rate it.</p>`;
+}
+
+/* =====================================================================
+   VIEW: SETTINGS
+   ===================================================================== */
+const SETTINGS_TABS = [["profile","Profile",true],["account","Account & security",true],["playback","Playback",false],["display","Display",false],["data","Data & privacy",false]];
+const swRow = (key, title, desc) => `<div class="set-row"><div class="lbl"><b>${title}</b><span>${desc}</span></div><div class="ctl"><label class="switch"><input type="checkbox" data-pref="${key}" ${PREFS[key] ? "checked" : ""} aria-label="${esc(title)}"><span></span></label></div></div>`;
+function viewSettings(tab){
+  const t = SETTINGS_TABS.find(x => x[0] === tab) || SETTINGS_TABS[ME.user ? 0 : 2];
+  return `<section class="hero single" style="margin-bottom:18px"><div><h1>Settings</h1><p class="lead">Manage your profile, account and how GDSR works for you.</p></div></section>
+  <div class="settings">
+    <nav class="side" aria-label="Settings sections">${SETTINGS_TABS.map(([k, l, auth]) => `<a href="#settings-${k}" class="${t[0] === k ? "active" : ""}">${l}${auth && !ME.user ? '<span class="faint small">Sign in</span>' : ""}</a>`).join("")}</nav>
+    <div class="set-panel" id="setPanel">${settingsPanel(t[0])}</div>
+  </div>`;
+}
+function settingsPanel(tab){
+  const n = myName(), needAuth = `<div class="set-card"><header><h2>Sign in required</h2><p>Sign in to manage this section.</p></header><div class="set-row"><div class="lbl"><b>You're signed out</b><span>Playback, display and data settings still work without an account.</span></div><div class="ctl"><a class="btn primary" href="#login">Sign in</a></div></div></div>`;
+  switch (tab){
+    case "profile": if (!ME.user) return needAuth;
+      return `<div class="set-card"><header><h2>Profile</h2><p>This is how other people see you on GDSR.</p></header>
+        <form id="profForm" novalidate>
+          <div class="set-row"><div class="lbl" style="display:flex;gap:14px;align-items:center"><div class="avatar-lg" id="avPrev">${esc(n.slice(0,1).toUpperCase() || "U")}</div><div><b>Avatar</b><span>Generated from your username.</span></div></div></div>
+          <div class="set-row"><div class="lbl"><b>Username</b><span>3–24 characters: letters, numbers, _ . or -</span></div><div class="ctl"><input class="input" name="username" value="${esc(n)}" minlength="3" maxlength="24" pattern="[A-Za-z0-9_.\\-]+" required autocomplete="username"></div></div>
+          <div class="set-row"><div class="lbl"><b>Role</b><span>Roles are managed by admins.</span></div><div class="ctl">${ME.isAdmin ? '<span class="badge admin">Admin</span>' : '<span class="badge">User</span>'}</div></div>
+          <div class="set-row" style="justify-content:flex-end"><button class="btn primary" type="submit">Save profile</button></div>
+        </form></div>`;
+    case "account": if (!ME.user) return needAuth;
+      return `<div class="set-card"><header><h2>Account</h2><p>Your sign-in details.</p></header>
+          <div class="set-row"><div class="lbl"><b>Email</b><span>Used to sign in and for password resets.</span></div><div class="ctl"><input class="input" value="${esc(ME.user.email || "")}" disabled></div></div>
+          <div class="set-row"><div class="lbl"><b>Member since</b><span>&nbsp;</span></div><div class="ctl">${dateFmt(ME.profile && ME.profile.created_at || ME.user.created_at)}</div></div></div>
+        <div class="set-card"><header><h2>Password</h2><p>Use at least 8 characters.</p></header>
+          <form id="pwForm" novalidate>
+            <div class="set-row"><div class="lbl"><b>New password</b></div><div class="ctl"><input class="input" name="password" type="password" minlength="8" autocomplete="new-password" required></div></div>
+            <div class="set-row"><div class="lbl"><b>Confirm password</b></div><div class="ctl"><input class="input" name="confirm" type="password" minlength="8" autocomplete="new-password" required></div></div>
+            <div class="set-row" style="justify-content:flex-end"><button class="btn primary" type="submit">Change password</button></div>
+          </form></div>
+        <div class="set-card"><header><h2>Sessions</h2></header>
+          <div class="set-row"><div class="lbl"><b>Sign out</b><span>Sign out on this device.</span></div><div class="ctl"><button class="btn" id="soHere" type="button">Sign out</button></div></div>
+          <div class="set-row"><div class="lbl"><b>Sign out everywhere</b><span>Ends your session on every device.</span></div><div class="ctl"><button class="btn danger" id="soAll" type="button">Sign out everywhere</button></div></div></div>`;
+    case "playback":
+      return `<div class="set-card"><header><h2>Playback</h2><p>How the music player behaves. Saved on this device.</p></header>
+        <div class="set-row"><div class="lbl"><b>Volume</b><span>Default player volume.</span></div><div class="ctl"><input type="range" id="setVol" min="0" max="100" value="${Math.round(P.audio.volume * 100)}" style="--p:${Math.round(P.audio.volume * 100)}%" aria-label="Volume"><span class="mono small" id="setVolOut" style="width:38px;text-align:right">${Math.round(P.audio.volume * 100)}%</span></div></div>
+        ${swRow("autoplay", "Autoplay next song", "Keep playing the next song in the queue when one ends.")}
+        ${swRow("shuffleDefault", "Shuffle by default", "Start new queues in shuffle mode.")}
+        <div class="set-row"><div class="lbl"><b>Repeat</b><span>What happens at the end of the queue.</span></div><div class="ctl"><select class="select" id="setRepeat">${[["off","Off"],["all","Repeat queue"],["one","Repeat song"]].map(([v, l]) => `<option value="${v}"${P.repeat === v ? " selected" : ""}>${l}</option>`).join("")}</select></div></div></div>`;
+    case "display":
+      return `<div class="set-card"><header><h2>Display</h2><p>Saved on this device.</p></header>
+        ${swRow("compact", "Compact lists", "Shorter rows that hide the second line, so more songs fit on screen.")}
+        ${swRow("reduceMotion", "Reduce motion", "Turn off animations and transitions.")}
+        ${swRow("showNoAudio", "Show songs without audio", "Include songs that have no audio file in lists.")}</div>`;
+    case "data": {
+      const local = PL.localAll().length;
+      return `<div class="set-card"><header><h2>Your data</h2><p>Download what you've created on GDSR.</p></header>
+          <div class="set-row"><div class="lbl"><b>Export playlists</b><span>All your playlists as one JSON file of song IDs.</span></div><div class="ctl"><button class="btn" id="expPl" type="button">Export</button></div></div>
+          ${ME.user ? `<div class="set-row"><div class="lbl"><b>Export votes</b><span>Every vote you've cast, as CSV.</span></div><div class="ctl"><button class="btn" id="expVotes" type="button">Export</button></div></div>` : ""}</div>
+        <div class="set-card danger-zone"><header><h2>Clear this device</h2><p>Removes data stored in this browser only. Your account is not affected.</p></header>
+          <div class="set-row"><div class="lbl"><b>Browser playlists</b><span>${local} playlist${local === 1 ? "" : "s"} saved in this browser.</span></div><div class="ctl"><button class="btn danger" id="clrPl" type="button" ${local ? "" : "disabled"}>Delete</button></div></div>
+          <div class="set-row"><div class="lbl"><b>Reset preferences</b><span>Playback and display settings go back to their defaults.</span></div><div class="ctl"><button class="btn danger" id="clrPrefs" type="button">Reset</button></div></div></div>`;
+    }
+  }
+  return "";
+}
+function mountSettings(tab){
+  tab = (SETTINGS_TABS.find(x => x[0] === tab) || SETTINGS_TABS[ME.user ? 0 : 2])[0];
+  $$("[data-pref]").forEach(el => el.addEventListener("change", () => { setPref(el.dataset.pref, el.checked); toast("Saved"); }));
+  const pf = $("#profForm");
+  if (pf){
+    const inp = $("[name=username]", pf);
+    inp.addEventListener("input", () => { $("#avPrev").textContent = (inp.value.trim()[0] || "U").toUpperCase(); });
+    pf.addEventListener("submit", async e => { e.preventDefault();
+      if (!inp.checkValidity()){ toast("Username: 3–24 letters, numbers, _ . or -", true); inp.focus(); return; }
+      try { await run(sb.from("profiles").update({username:inp.value.trim()}).eq("id", ME.user.id)); await refreshMe((await sb.auth.getSession()).data.session); toast("Profile saved"); }
+      catch(err){ toast(/duplicate|unique/i.test(err.message) ? "That username is taken." : err.message, true); } });
+  }
+  const pw = $("#pwForm");
+  if (pw) pw.addEventListener("submit", async e => { e.preventDefault(); const d = Object.fromEntries(new FormData(pw));
+    if (d.password.length < 8){ toast("Password must be at least 8 characters.", true); return; }
+    if (d.password !== d.confirm){ toast("The passwords don't match.", true); return; }
+    try { await run(sb.auth.updateUser({password:d.password})); pw.reset(); toast("Password changed"); } catch(err){ toast(err.message, true); } });
+  const soH = $("#soHere"); if (soH) soH.onclick = signOut;
+  const soA = $("#soAll"); if (soA) soA.onclick = async () => { if (await confirmBox("Sign out on every device, including this one?", {ok:"Sign out everywhere", danger:true})){ await sb.auth.signOut({scope:"global"}); toast("Signed out everywhere"); location.hash = "list"; } };
+  const vol = $("#setVol");
+  if (vol) vol.addEventListener("input", () => { P.audio.volume = vol.value / 100; store.set("volume", P.audio.volume); vol.style.setProperty("--p", vol.value + "%"); $("#setVolOut").textContent = vol.value + "%"; const pv = $("#plVol"); if (pv){ pv.value = vol.value; pv.style.setProperty("--p", vol.value + "%"); } });
+  const rp = $("#setRepeat"); if (rp) rp.addEventListener("change", () => { P.repeat = rp.value; store.set("repeat", P.repeat); if (P.cur) renderPlayer(); toast("Saved"); });
+  const ep = $("#expPl");
+  if (ep) ep.onclick = async () => { try { const lists = await PL.list(); download(`gdsr-playlists-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({format:"gdsr-playlists", version:1, playlists:lists.map(p => ({name:p.name, songs:p.songs || []}))}, null, 2)); } catch(e){ toast(e.message, true); } };
+  const ev = $("#expVotes");
+  if (ev) ev.onclick = async () => { try { const r = await run(sb.from("votes").select("*").eq("user_id", ME.user.id)); download(`gdsr-votes-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(r.data.map(v => ({song_id:v.song, song:(DB.songById[v.song] || {}).name || "", score:v.score, created_at:v.created_at})), ["song_id","song","score","created_at"]), "text/csv"); } catch(e){ toast(e.message, true); } };
+  const cp = $("#clrPl"); if (cp) cp.onclick = async () => { if (await confirmBox("Delete all playlists saved in this browser?", {ok:"Delete", danger:true})){ PL.localSave([]); toast("Browser playlists deleted"); render({keepScroll:true}); } };
+  const cr = $("#clrPrefs"); if (cr) cr.onclick = async () => { if (await confirmBox("Reset playback and display settings to their defaults?", {ok:"Reset", danger:true})){ Object.assign(PREFS, PREF_DEFAULTS); store.set("prefs", PREFS); applyPrefs(); toast("Preferences reset"); render({keepScroll:true}); } };
 }
 
 /* =====================================================================
@@ -1099,7 +1215,7 @@ function bindAudioUpload(form, fields, folder){
         infoEl.insertAdjacentHTML("afterend", `<audio controls preload="metadata" src="${esc(audioUrl(path))}"></audio>`);
         const dur = await audioDuration(file); const lenIn = $(`[name="length"]`, form);
         if (dur && lenIn && !lenIn.value) lenIn.value = mmss(dur);
-      } catch(e){ infoEl.textContent = "Upload failed: " + e.message; toast(e.message, true); }
+      } catch(e){ const msg = storageError(e); infoEl.textContent = "Upload failed: " + msg; toast(msg, true); fileIn.value = ""; }
       delete form.dataset.uploading;
     });
   });
@@ -1536,7 +1652,7 @@ async function userActivity(u){
 /* ---------- audio storage ---------- */
 async function admStorage(main){
   const path = state.storagePath;
-  const r = await run(sb.storage.from(CONFIG.AUDIO_BUCKET).list(path, {limit:1000, sortBy:{column:"name", order:"asc"}}));
+  let r; try { r = await run(sb.storage.from(CONFIG.AUDIO_BUCKET).list(path, {limit:1000, sortBy:{column:"name", order:"asc"}})); } catch(e){ throw new Error(storageError(e)); }
   const items = (r.data || []).filter(x => x.name !== ".emptyFolderPlaceholder");
   const folders = items.filter(x => !x.id), files = items.filter(x => x.id);
   const full = n => (path ? path + "/" : "") + n;
@@ -1569,7 +1685,7 @@ async function admStorage(main){
     let ok = 0;
     for (const f of filesIn){
       if (f.size > CONFIG.MAX_AUDIO_MB * 1024 * 1024){ toast(`${f.name} is over ${CONFIG.MAX_AUDIO_MB} MB`, true); continue; }
-      try { await run(sb.storage.from(CONFIG.AUDIO_BUCKET).upload(full(`${Date.now()}-${safeName(f.name)}`), f, {contentType:f.type || "audio/mpeg"})); ok++; } catch(err){ toast(`${f.name}: ${err.message}`, true); }
+      try { await run(sb.storage.from(CONFIG.AUDIO_BUCKET).upload(full(`${Date.now()}-${safeName(f.name)}`), f, {contentType:f.type || "audio/mpeg"})); ok++; } catch(err){ toast(`${f.name}: ${storageError(err)}`, true); }
     }
     if (ok) toast(`Uploaded ${ok} file${ok === 1 ? "" : "s"}`);
     admStorage(main);
@@ -1583,6 +1699,8 @@ function route(){
   const h = decodeURIComponent(location.hash.slice(1)); let m;
   if (!h || h === "list") return {name:"list"};
   if (["levels","search","login","signup","account","playlists","request","request-song"].includes(h)) return {name:h};
+  if (h === "settings") return {name:"settings", id:""};
+  if ((m = h.match(/^settings-([a-z]+)$/))) return {name:"settings", id:m[1]};
   if (h === "admin") return {name:"admin", id:"overview"};
   if ((m = h.match(/^admin-([a-z-]+)$/))) return {name:"admin", id:m[1]};
   if ((m = h.match(/^level-([\w-]+)$/))) return {name:"level", id:m[1]};
@@ -1596,9 +1714,9 @@ function render(opts = {}){
   const r = route(), y = window.scrollY;
   $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
   if (r.name !== "search" && document.activeElement !== hq) hq.value = "";
-  $("#queue").classList.remove("on");
+  $("#queue").classList.remove("on"); toggleMenu(false);
   if (NEEDS_DATA.has(r.name) && !DB.loaded){ app.innerHTML = skeleton(8); return; }
-  if (["account","request","request-song","admin"].includes(r.name) && !ME.ready){ app.innerHTML = skeleton(4); return; }
+  if (["account","request","request-song","admin","settings"].includes(r.name) && !ME.ready){ app.innerHTML = skeleton(4); return; }
   let title = "The List";
   switch (r.name){
     case "list": app.innerHTML = viewList(); mountList(); break;
@@ -1607,7 +1725,8 @@ function render(opts = {}){
     case "level": { const lv = DB.levelById[r.id]; if (!lv){ notFound(); title = "Not found"; break; } title = lv.name; app.innerHTML = viewLevel(lv); mountLevel(lv); break; }
     case "song": { const s = DB.songById[r.id]; if (!s){ notFound(); title = "Not found"; break; } title = s.name; app.innerHTML = viewSong(s); mountSong(s); break; }
     case "login": case "signup": title = r.name === "login" ? "Sign in" : "Create account"; app.innerHTML = viewAuth(r.name); mountAuth(r.name); break;
-    case "account": title = "Account"; app.innerHTML = viewAccount(); mountAccount(); break;
+    case "account": title = "Profile"; app.innerHTML = viewAccount(); mountAccount(); break;
+    case "settings": title = "Settings"; app.innerHTML = viewSettings(r.id); mountSettings(r.id); break;
     case "request": case "request-song": title = "Request"; { const k = r.name === "request-song" ? "song" : "level"; app.innerHTML = viewRequest(k); mountRequest(k); } break;
     case "playlists": title = "Playlists"; app.innerHTML = viewPlaylists(); mountPlaylists(); break;
     case "playlist": title = "Playlist"; app.innerHTML = viewPlaylist(); mountPlaylist(r.id); break;
@@ -1632,6 +1751,12 @@ let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTime
    BOOT
    ===================================================================== */
 (async function boot(){
+  applyPrefs();
+  $("#acctBtn").addEventListener("click", e => { e.stopPropagation(); toggleMenu(); });
+  document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#acctMenu").hidden){ toggleMenu(false); $("#acctBtn").focus(); } });
+  $("#acctMenu").addEventListener("click", e => { if (e.target.closest("a")) toggleMenu(false); });
+  renderHeader();
   render();
   sb.auth.onAuthStateChange((event, session) => {
     if (event === "INITIAL_SESSION") return;
