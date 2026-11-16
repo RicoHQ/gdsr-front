@@ -9,7 +9,7 @@ const CONFIG = {
   SUPABASE_KEY: "sb_publishable_2Vl-Rwf1mxy8san0hTPeoQ_t5WUv1WV",   // publishable key: safe in front-end code; RLS protects data
   AUDIO_BUCKET: "audio",
   BUCKET: 2,                       // seconds per bar in the favourite-part graph
-  MAX_AUDIO_MB: 25
+  MAX_AUDIO_MB: 20
 };
 const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
@@ -59,11 +59,23 @@ function ytId(v){
   if (/^[\w-]{11}$/.test(s)) return s;
   return null;
 }
-function audioUrl(path){
+const AUDIO_CACHE = {};
+async function resolveAudio(path){
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;
-  return sb.storage.from(CONFIG.AUDIO_BUCKET).getPublicUrl(path).data.publicUrl;
+  const c = AUDIO_CACHE[path];
+  if (c && c.exp > Date.now()) return c.url;
+  const r = await sb.storage.from(CONFIG.AUDIO_BUCKET).createSignedUrl(path, 3600);   // bucket is private: signed links
+  if (r.error || !r.data) throw new Error(r.error ? r.error.message : "No access to this audio file");
+  AUDIO_CACHE[path] = {url:r.data.signedUrl, exp:Date.now() + 50 * 60 * 1000};
+  return r.data.signedUrl;
 }
+function hydrateAudio(root = document){
+  $$("audio[data-audio]", root).forEach(a => { const p = a.dataset.audio; a.removeAttribute("data-audio");
+    resolveAudio(p).then(u => { a.src = u; }).catch(() => { a.replaceWith(Object.assign(document.createElement("span"), {className:"small faint", textContent:"Audio unavailable"})); }); });
+}
+new MutationObserver(muts => { for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.matches("audio[data-audio]") || n.querySelector("audio[data-audio]"))) hydrateAudio(n.parentNode || document); })
+  .observe(document.documentElement, {childList:true, subtree:true});
 async function run(promise){
   const res = await promise;
   if (res.error) throw new Error(res.error.message || String(res.error));
@@ -86,7 +98,7 @@ async function copyText(t, label = "Copied"){
 function storageError(e){
   const m = String(e && e.message || e);
   if (/bucket not found/i.test(m)) return "Audio storage isn't set up yet. An admin needs to run supabase/migration.sql to create the audio bucket.";
-  if (/row-level security|unauthorized|not allowed|403/i.test(m)) return "You don't have permission to upload there. Make sure you're signed in.";
+  if (/row-level security|unauthorized|not allowed|403/i.test(m)) return "The database refused the upload. Make sure you're signed in. If it keeps happening, the storage upload policy needs updating in Lovable.";
   if (/exceeded|too large|payload/i.test(m)) return `That file is too large. The limit is ${CONFIG.MAX_AUDIO_MB} MB.`;
   if (/mime|content type/i.test(m)) return "That file type isn't allowed. Use MP3, OGG, WAV or M4A.";
   return m;
@@ -424,9 +436,13 @@ const P = {
   },
   load(i, autoplay){
     this.index = i; const s = this.cur; if (!s) return;
-    this.audio.src = audioUrl(s.audio_file);
-    if (autoplay) this.audio.play().catch(() => {});
     renderPlayer(); updateMedia(); markPlaying();
+    const token = this.loadToken = (this.loadToken || 0) + 1;
+    resolveAudio(s.audio_file).then(url => {
+      if (token !== this.loadToken) return;
+      this.audio.src = url;
+      if (autoplay) this.audio.play().catch(() => {});
+    }).catch(e => toast(/not found|denied|unauthorized|security|403/i.test(e.message) ? "You don't have access to play this audio file." : "Couldn't load this audio file.", true));
   },
   toggle(){ if (!this.cur) return; this.audio.paused ? this.audio.play().catch(() => {}) : this.audio.pause(); },
   next(auto = false){
@@ -1184,7 +1200,7 @@ function fieldHtml(f, val, ctx = {}){
     case "audio":
       return wrap(`<input type="hidden" id="${id}" name="${f.k}" value="${esc(v)}">
         <span class="upload"><input type="file" id="${id}_file" accept="audio/*"><span class="small muted" id="${id}_info">${v ? esc(String(v).split("/").pop()) : "MP3, OGG, WAV… up to " + CONFIG.MAX_AUDIO_MB + " MB"}</span>
-        ${v ? `<audio controls preload="none" src="${esc(audioUrl(v))}"></audio>` : ""}${ctx.admin ? `<input class="input mono small" style="flex:1 1 220px" data-audio-path="${f.k}" value="${esc(v)}" placeholder="or a storage path / URL">` : ""}</span>`);
+        ${v ? `<audio controls preload="none" data-audio="${esc((v))}"></audio>` : ""}${ctx.admin ? `<input class="input mono small" style="flex:1 1 220px" data-audio-path="${f.k}" value="${esc(v)}" placeholder="or a storage path / URL">` : ""}</span>`);
     case "url":
       return wrap(`<input class="input" type="url" id="${id}" name="${f.k}" value="${esc(v)}" placeholder="https://…" ${f.req ? "required" : ""}>`);
     case "ro":
@@ -1212,7 +1228,7 @@ function bindAudioUpload(form, fields, folder){
         hidden.value = path; if (pathIn) pathIn.value = path;
         infoEl.innerHTML = `Uploaded <span class="mono">${esc(file.name)}</span>`;
         const old = $("audio", infoEl.parentElement); if (old) old.remove();
-        infoEl.insertAdjacentHTML("afterend", `<audio controls preload="metadata" src="${esc(audioUrl(path))}"></audio>`);
+        infoEl.insertAdjacentHTML("afterend", `<audio controls preload="metadata" data-audio="${esc((path))}"></audio>`);
         const dur = await audioDuration(file); const lenIn = $(`[name="length"]`, form);
         if (dur && lenIn && !lenIn.value) lenIn.value = mmss(dur);
       } catch(e){ const msg = storageError(e); infoEl.textContent = "Upload failed: " + msg; toast(msg, true); fileIn.value = ""; }
@@ -1258,7 +1274,7 @@ function mountRequest(kind){
   const fields = kind === "song" ? SONG_FIELDS : LEVEL_FIELDS, form = $("#reqForm"), msg = $("#reqMsg");
   $$("[data-kind]").forEach(b => b.onclick = () => { location.hash = b.dataset.kind; });
   applyShowIf(form, fields); form.addEventListener("change", () => applyShowIf(form, fields));
-  bindAudioUpload(form, fields, `requests/${ME.user.id}`);
+  bindAudioUpload(form, fields, `${ME.user.id}/requests`);
   form.addEventListener("submit", async e => {
     e.preventDefault(); msg.hidden = true;
     if (form.dataset.uploading){ toast("Wait for the audio upload to finish.", true); return; }
@@ -1445,7 +1461,7 @@ async function admRequests(main, kind){
   const val = (f, v) => {
     if (v === null || v === undefined || v === "") return '<span class="faint">—</span>';
     if (f.type === "song") return DB.songById[v] ? `<a class="link" href="#song-${v}">${esc(DB.songById[v].name)}</a>` : `<span class="mono">${esc(v)}</span>`;
-    if (f.type === "audio") return `<audio controls preload="none" src="${esc(audioUrl(v))}" style="height:32px;max-width:100%"></audio>`;
+    if (f.type === "audio") return `<audio controls preload="none" data-audio="${esc((v))}" style="height:32px;max-width:100%"></audio>`;
     if (f.type === "url") return `<a class="link" href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`;
     if (f.type === "enum" && f.labels) return esc(f.labels[v] || v);
     return esc(v);
@@ -1480,13 +1496,14 @@ async function admRequests(main, kind){
     const ap = $("[data-approve]", card), rj = $("[data-reject]", card), ed = $("[data-edit]", card), dl = $("[data-del]", card);
     if (ap) ap.onclick = () => review(true);
     if (rj) rj.onclick = () => review(false);
-    if (ed) ed.onclick = () => admEditForm({title:`Edit ${kind} request`, fields, row:q, onSave:async data => { await run(sb.from(table).update(data).eq("id", id)); toast("Request updated"); admRequests(main, kind); }, folder:"songs"});
+    if (ed) ed.onclick = () => admEditForm({title:`Edit ${kind} request`, fields, row:q, onSave:async data => { await run(sb.from(table).update(data).eq("id", id)); toast("Request updated"); admRequests(main, kind); }, folder:`${ME.user.id}/songs`});
     if (dl) dl.onclick = async () => { if (await confirmBox("Delete this request permanently?", {ok:"Delete", danger:true})){ try { await run(sb.from(table).delete().eq("id", id)); toast("Request deleted"); admRequests(main, kind); admPendingCounts(); } catch(e){ toast(e.message, true); } } };
   });
 }
 
 /* ---------- generic edit form ---------- */
-function admEditForm({title, fields, row, onSave, folder = "songs", users}){
+function admEditForm({title, fields, row, onSave, folder, users}){
+  folder = folder || `${ME.user.id}/songs`;
   const isNew = !row;
   const bg = openModal({title, wide:true,
     body:`<form class="form" id="admForm" novalidate><div class="row2" style="align-items:start">${fields.map(f => fieldHtml(f, row ? row[f.k] : (f.type === "enum" && f.k === "type" ? "original" : undefined), {admin:true, users, selfId:row && row.id})).join("")}</div><p class="msg" id="admMsg" hidden></p></form>`,
@@ -1666,7 +1683,7 @@ async function admStorage(main){
       ${folders.map(f => `<li>📁 <a href="#admin-storage" class="fn link" data-path="${esc(full(f.name))}">${esc(f.name)}</a></li>`).join("")}
       ${files.map(f => { const p = full(f.name), song = DB.songs.find(s => s.audio_file === p);
         return `<li data-file="${esc(p)}"><span class="fn"><b>${esc(f.name)}</b><br><span class="small muted">${f.metadata && f.metadata.size ? (f.metadata.size / 1048576).toFixed(2) + " MB · " : ""}${song ? `used by <a class="link" href="#song-${song.id}">${esc(song.name)}</a>` : used.has(p) ? "in use" : '<span class="faint">not linked to a song</span>'}</span></span>
-          <audio controls preload="none" src="${esc(audioUrl(p))}" style="height:32px;width:220px;max-width:40vw"></audio>
+          <audio controls preload="none" data-audio="${esc((p))}" style="height:32px;width:220px;max-width:40vw"></audio>
           <button class="btn sm" data-cp type="button">Copy path</button><button class="btn sm danger" data-rm type="button">Delete</button></li>`; }).join("")}
       ${!folders.length && !files.length ? `<li class="muted">This folder is empty.</li>` : ""}
     </ul></div>`;
@@ -1685,7 +1702,8 @@ async function admStorage(main){
     let ok = 0;
     for (const f of filesIn){
       if (f.size > CONFIG.MAX_AUDIO_MB * 1024 * 1024){ toast(`${f.name} is over ${CONFIG.MAX_AUDIO_MB} MB`, true); continue; }
-      try { await run(sb.storage.from(CONFIG.AUDIO_BUCKET).upload(full(`${Date.now()}-${safeName(f.name)}`), f, {contentType:f.type || "audio/mpeg"})); ok++; } catch(err){ toast(`${f.name}: ${storageError(err)}`, true); }
+      const dest = path.split("/")[0] === ME.user.id ? full(`${Date.now()}-${safeName(f.name)}`) : `${ME.user.id}/songs/${Date.now()}-${safeName(f.name)}`;
+      try { await run(sb.storage.from(CONFIG.AUDIO_BUCKET).upload(dest, f, {contentType:f.type || "audio/mpeg"})); ok++; } catch(err){ toast(`${f.name}: ${storageError(err)}`, true); }
     }
     if (ok) toast(`Uploaded ${ok} file${ok === 1 ? "" : "s"}`);
     admStorage(main);
