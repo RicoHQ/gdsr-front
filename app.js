@@ -197,7 +197,7 @@ const DIFF_ORDER = Object.keys(DIFF);
 
 const DB = { loaded:false, error:null, levels:[], songs:[], songIds:[], stats:{}, statsSource:"view", songById:{}, levelById:{} };
 const ME = { user:null, profile:null, isAdmin:false, ready:false };
-const PREF_DEFAULTS = { autoplay:true, shuffleDefault:false, compact:false, reduceMotion:false, showNoAudio:true };
+const PREF_DEFAULTS = { autoplay:true, shuffleDefault:false, compact:false, reduceMotion:false, showNoAudio:true, visualizer:true, keepPitch:false };
 const PREFS = Object.assign({}, PREF_DEFAULTS, store.get("prefs", {}));
 function setPref(k, v){ PREFS[k] = v; store.set("prefs", PREFS); applyPrefs(); }
 function applyPrefs(){ document.body.classList.toggle("compact", !!PREFS.compact); document.body.classList.toggle("reduce-motion", !!PREFS.reduceMotion); }
@@ -440,11 +440,11 @@ const P = {
     const token = this.loadToken = (this.loadToken || 0) + 1;
     resolveAudio(s.audio_file).then(url => {
       if (token !== this.loadToken) return;
-      this.audio.src = url;
-      if (autoplay) this.audio.play().catch(() => {});
+      this.audio.src = url; applyRate();
+      if (autoplay){ initAudioGraph(); this.audio.play().catch(() => {}); }
     }).catch(e => toast(/not found|denied|unauthorized|security|403/i.test(e.message) ? "You don't have access to play this audio file." : "Couldn't load this audio file.", true));
   },
-  toggle(){ if (!this.cur) return; this.audio.paused ? this.audio.play().catch(() => {}) : this.audio.pause(); },
+  toggle(){ if (!this.cur) return; if (this.audio.paused){ initAudioGraph(); this.audio.play().catch(() => {}); } else this.audio.pause(); },
   next(auto = false){
     if (!this.queue.length) return;
     if (auto && this.repeat === "one"){ this.audio.currentTime = 0; this.audio.play().catch(() => {}); return; }
@@ -459,6 +459,67 @@ const P = {
     this.queue.splice(this.index + 1, 0, id); renderQueue(); toast("Plays next"); }
 };
 P.audio.preload = "metadata";
+P.audio.crossOrigin = "anonymous";          // lets the visualizer read the audio (storage sends CORS headers)
+P.rate = store.get("rate", 1);
+function applyRate(){
+  const a = P.audio, keep = !!PREFS.keepPitch;
+  a.defaultPlaybackRate = P.rate; a.playbackRate = P.rate;
+  if ("preservesPitch" in a) a.preservesPitch = keep;
+  a.mozPreservesPitch = keep; a.webkitPreservesPitch = keep;
+}
+function setRate(r){
+  P.rate = Math.round(Math.min(2, Math.max(0.5, r)) * 100) / 100;
+  store.set("rate", P.rate); applyRate();
+  const b = $("#plSpd"); if (b) { b.textContent = fmtRate(P.rate); b.classList.toggle("on", P.rate !== 1); }
+  const sl = $("#spdRange"); if (sl){ sl.value = P.rate; sl.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); }
+  const so = $("#spdOut"); if (so) so.textContent = fmtRate(P.rate);
+  $$("[data-rate]").forEach(c => c.setAttribute("aria-pressed", String(+c.dataset.rate === P.rate)));
+}
+const fmtRate = r => (Math.round(r * 100) / 100).toString().replace(/^0\./, "0.") + "×";
+
+/* ---------- visualizer (Web Audio analyser) ---------- */
+const VIS = { ctx:null, analyser:null, data:null, raf:0, level:[] };
+function initAudioGraph(){
+  if (VIS.ctx || !PREFS.visualizer) { if (VIS.ctx && VIS.ctx.state === "suspended") VIS.ctx.resume(); return; }
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    VIS.ctx = new AC();
+    const src = VIS.ctx.createMediaElementSource(P.audio);
+    VIS.analyser = VIS.ctx.createAnalyser(); VIS.analyser.fftSize = 256; VIS.analyser.smoothingTimeConstant = .78;
+    src.connect(VIS.analyser); VIS.analyser.connect(VIS.ctx.destination);
+    VIS.data = new Uint8Array(VIS.analyser.frequencyBinCount);
+  } catch(_){ VIS.ctx = null; }
+}
+function startVis(){ if (!VIS.raf) VIS.raf = requestAnimationFrame(drawVis); }
+function drawVis(){
+  VIS.raf = 0;
+  const canvases = $$("canvas[data-vis]").filter(c => c.offsetParent !== null && (!c.dataset.song || (P.cur && c.dataset.song === P.cur.id)));
+  const playing = P.cur && !P.audio.paused;
+  let live = false;
+  if (VIS.analyser && playing && PREFS.visualizer && !PREFS.reduceMotion) { VIS.analyser.getByteFrequencyData(VIS.data); live = true; }
+  let any = false;
+  canvases.forEach(cv => {
+    const n = +cv.dataset.bars || 24, dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    const key = cv.dataset.vis + n; const lv = VIS.level[key] = VIS.level[key] || new Array(n).fill(0);
+    const gap = Math.max(1, Math.round(w / n * .22)), bw = (w - gap * (n - 1)) / n;
+    const grad = g.createLinearGradient(0, h, 0, 0); grad.addColorStop(0, "#1f8f52"); grad.addColorStop(1, "#5cf09a");
+    g.fillStyle = grad;
+    for (let i = 0; i < n; i++){
+      let target = 0;
+      if (live){ const bins = VIS.data.length * .72, a = Math.floor(Math.pow(i / n, 1.6) * bins), b = Math.max(a + 1, Math.floor(Math.pow((i + 1) / n, 1.6) * bins));
+        let m = 0; for (let k = a; k < b; k++) m = Math.max(m, VIS.data[k]); target = m / 255; }
+      lv[i] += (target - lv[i]) * (target > lv[i] ? .55 : .14);
+      if (lv[i] > .01) any = true;
+      const bh = Math.max(cv.dataset.vis === "big" ? 3 : 2, lv[i] * h);
+      const r = Math.min(bw / 2, 3), x = i * (bw + gap), y = h - bh;
+      g.beginPath(); if (g.roundRect) g.roundRect(x, y, bw, bh, [r, r, 0, 0]); else g.rect(x, y, bw, bh); g.fill();
+    }
+  });
+  if (live || any) startVis();
+}
 P.audio.volume = store.get("volume", .8);
 function shuffleArr(a){ a = a.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function renderPlayer(){
@@ -467,13 +528,14 @@ function renderPlayer(){
   el.classList.add("on");
   const paused = P.audio.paused;
   el.innerHTML = `<div class="pl-in" style="position:relative">
-    <div class="pl-song"><div class="pl-art">${ICON.music}</div><div class="pl-meta"><a href="#song-${s.id}">${esc(s.name)}</a><span>${esc(s.author || "")} · ${esc(TYPE_LABEL[s.type] || "")}</span></div></div>
+    <div class="pl-song"><div class="pl-art">${PREFS.visualizer && !PREFS.reduceMotion ? `<canvas data-vis="mini" data-bars="7" aria-hidden="true"></canvas>` : ICON.music}</div><div class="pl-meta"><a href="#song-${s.id}">${esc(s.name)}</a><span>${esc(s.author || "")} · ${esc(TYPE_LABEL[s.type] || "")}</span></div></div>
     <div class="pl-center">
       <div class="pl-ctrls">
         <button class="ib opt ${P.shuffle ? "on" : ""}" id="plShuf" type="button" aria-label="Shuffle" aria-pressed="${P.shuffle}">${ICON.shuffle}</button>
         <button class="ib" id="plPrev" type="button" aria-label="Previous">${ICON.prev}</button>
         <button class="ib main" id="plPlay" type="button" aria-label="${paused ? "Play" : "Pause"}">${paused ? ICON.play : ICON.pause}</button>
         <button class="ib" id="plNext" type="button" aria-label="Next">${ICON.next}</button>
+        <button class="ib spd ${P.rate !== 1 ? "on" : ""}" id="plSpd" type="button" aria-label="Playback speed" aria-haspopup="dialog" title="Playback speed">${fmtRate(P.rate)}</button>
         <button class="ib opt ${P.repeat !== "off" ? "on" : ""}" id="plRep" type="button" aria-label="Repeat: ${P.repeat}" title="Repeat: ${P.repeat}" style="position:relative">${ICON.repeat}${P.repeat === "one" ? "<small>1</small>" : ""}</button>
       </div>
       <div class="pl-seek"><span id="plCur">0:00</span><input type="range" id="plSeek" min="0" max="1000" value="0" aria-label="Seek"><span id="plDur">0:00</span></div>
@@ -493,11 +555,26 @@ function renderPlayer(){
     renderPlayer(); renderQueue(); };
   $("#plRep").onclick = () => { P.repeat = {off:"all", all:"one", one:"off"}[P.repeat]; store.set("repeat", P.repeat); renderPlayer(); };
   $("#plAdd").onclick = () => openAddToPlaylist(s.id);
+  $("#plSpd").onclick = e => { e.stopPropagation(); toggleSpeed(); };
   $("#plQ").onclick = () => { $("#queue").classList.toggle("on"); renderQueue(); };
   const seek = $("#plSeek");
   seek.addEventListener("input", () => { const d = P.audio.duration; if (d) { P.audio.currentTime = seek.value / 1000 * d; } });
   $("#plVol").addEventListener("input", e => { P.audio.volume = e.target.value / 100; e.target.style.setProperty("--p", e.target.value + "%"); store.set("volume", P.audio.volume); });
-  updateTime();
+  updateTime(); startVis();
+}
+function toggleSpeed(open){
+  const pop = $("#speedPop"); open = open === undefined ? pop.hidden : open;
+  if (!open){ pop.hidden = true; return; }
+  const presets = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  pop.innerHTML = `<div class="sp-h"><b>Playback speed</b><output id="spdOut" class="mono">${fmtRate(P.rate)}</output></div>
+    <input type="range" id="spdRange" min="0.5" max="2" step="0.05" value="${P.rate}" style="--p:${(P.rate - .5) / 1.5 * 100}%" aria-label="Playback speed">
+    <div class="chips" style="flex-wrap:wrap">${presets.map(r => `<button class="chip" type="button" data-rate="${r}" aria-pressed="${r === P.rate}">${fmtRate(r)}</button>`).join("")}</div>
+    <label class="sp-pitch"><span>Keep original pitch</span><span class="switch"><input type="checkbox" id="spdPitch" ${PREFS.keepPitch ? "checked" : ""}><span></span></span></label>
+    <p class="small faint" style="margin:0">${PREFS.keepPitch ? "Only the speed changes." : "Pitch changes with speed: faster sounds higher (nightcore), slower sounds deeper."}</p>`;
+  pop.hidden = false;
+  $("#spdRange").addEventListener("input", e => setRate(+e.target.value));
+  $$("[data-rate]", pop).forEach(c => c.onclick = () => setRate(+c.dataset.rate));
+  $("#spdPitch").addEventListener("change", e => { setPref("keepPitch", e.target.checked); applyRate(); toggleSpeed(true); });
 }
 function updateTime(){
   const seek = $("#plSeek"); if (!seek) return;
@@ -532,8 +609,9 @@ function updateMedia(){
 }
 P.audio.addEventListener("timeupdate", updateTime);
 P.audio.addEventListener("loadedmetadata", updateTime);
-P.audio.addEventListener("play", () => { renderPlayer(); markPlaying(); });
-P.audio.addEventListener("pause", () => { renderPlayer(); markPlaying(); });
+P.audio.addEventListener("play", () => { renderPlayer(); markPlaying(); startVis(); });
+P.audio.addEventListener("pause", () => { renderPlayer(); markPlaying(); startVis(); });
+P.audio.addEventListener("ratechange", () => { if (Math.abs(P.audio.playbackRate - P.rate) > .001 && P.audio.src) applyRate(); });
 P.audio.addEventListener("ended", () => { if (PREFS.autoplay || P.repeat === "one") P.next(true); else { P.audio.currentTime = 0; renderPlayer(); markPlaying(); } });
 P.audio.addEventListener("error", () => { if (P.cur) toast("Couldn't play this audio file.", true); });
 
@@ -737,7 +815,7 @@ function ring(s){
 function videoBlock(s){
   const id = ytId(s.video);
   if (id) return `<div class="video o-video"><iframe src="https://www.youtube-nocookie.com/embed/${id}" title="${esc(s.name)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`;
-  return `<div class="video o-video"><div class="video-ov">
+  return `<div class="video o-video">${s.audio_file && PREFS.visualizer && !PREFS.reduceMotion ? `<canvas class="big-vis" data-vis="big" data-bars="48" data-song="${s.id}" aria-hidden="true"></canvas>` : ""}<div class="video-ov">
     ${s.audio_file ? `<button class="bigplay" type="button" data-play="${s.id}" aria-label="Play">${ICON.play}</button>` : ""}
     <span class="vt">${esc(s.name)}</span>
     <span class="vs">${s.audio_file ? "No video yet. Press play to listen." : "No video or audio yet."}${s.video ? ` <a class="link" href="${esc(s.video)}" target="_blank" rel="noopener">Open link ↗</a>` : ""}</span></div></div>`;
@@ -941,7 +1019,7 @@ async function saveFav(time){
 }
 async function refreshFavs(){ await loadSongExtras(songCtx.song); drawChart(); renderChartActions(); }
 async function mountSong(s){
-  bindCopy(app); bindPlayButtons(app, [s.id, ...songsFor(s.song_id).filter(x => x.id !== s.id).map(x => x.id)]);
+  bindCopy(app); bindPlayButtons(app, [s.id, ...songsFor(s.song_id).filter(x => x.id !== s.id).map(x => x.id)]); startVis();
   $("#songAdd").onclick = () => openAddToPlaylist(s.id);
   $("#songQueue").onclick = () => P.enqueue(s.id);
   $("#rateCard").innerHTML = `<h3>Rate</h3><p class="muted small">Loading…</p>`;
@@ -1103,11 +1181,14 @@ function settingsPanel(tab){
     case "playback":
       return `<div class="set-card"><header><h2>Playback</h2><p>How the music player behaves. Saved on this device.</p></header>
         <div class="set-row"><div class="lbl"><b>Volume</b><span>Default player volume.</span></div><div class="ctl"><input type="range" id="setVol" min="0" max="100" value="${Math.round(P.audio.volume * 100)}" style="--p:${Math.round(P.audio.volume * 100)}%" aria-label="Volume"><span class="mono small" id="setVolOut" style="width:38px;text-align:right">${Math.round(P.audio.volume * 100)}%</span></div></div>
+        <div class="set-row"><div class="lbl"><b>Playback speed</b><span>0.5× to 2×. Changes pitch too unless “Keep original pitch” is on.</span></div><div class="ctl"><input type="range" id="setRate" min="0.5" max="2" step="0.05" value="${P.rate}" style="--p:${(P.rate - .5) / 1.5 * 100}%" aria-label="Playback speed"><span class="mono small" id="setRateOut" style="width:46px;text-align:right">${fmtRate(P.rate)}</span></div></div>
+        ${swRow("keepPitch", "Keep original pitch", "Change only the speed, not the pitch.")}
         ${swRow("autoplay", "Autoplay next song", "Keep playing the next song in the queue when one ends.")}
         ${swRow("shuffleDefault", "Shuffle by default", "Start new queues in shuffle mode.")}
         <div class="set-row"><div class="lbl"><b>Repeat</b><span>What happens at the end of the queue.</span></div><div class="ctl"><select class="select" id="setRepeat">${[["off","Off"],["all","Repeat queue"],["one","Repeat song"]].map(([v, l]) => `<option value="${v}"${P.repeat === v ? " selected" : ""}>${l}</option>`).join("")}</select></div></div></div>`;
     case "display":
       return `<div class="set-card"><header><h2>Display</h2><p>Saved on this device.</p></header>
+        ${swRow("visualizer", "Music visualizer", "Animated bars in the player and on song pages while music plays.")}
         ${swRow("compact", "Compact lists", "Shorter rows that hide the second line, so more songs fit on screen.")}
         ${swRow("reduceMotion", "Reduce motion", "Turn off animations and transitions.")}
         ${swRow("showNoAudio", "Show songs without audio", "Include songs that have no audio file in lists.")}</div>`;
@@ -1144,6 +1225,9 @@ function mountSettings(tab){
   const soA = $("#soAll"); if (soA) soA.onclick = async () => { if (await confirmBox("Sign out on every device, including this one?", {ok:"Sign out everywhere", danger:true})){ await sb.auth.signOut({scope:"global"}); toast("Signed out everywhere"); location.hash = "list"; } };
   const vol = $("#setVol");
   if (vol) vol.addEventListener("input", () => { P.audio.volume = vol.value / 100; store.set("volume", P.audio.volume); vol.style.setProperty("--p", vol.value + "%"); $("#setVolOut").textContent = vol.value + "%"; const pv = $("#plVol"); if (pv){ pv.value = vol.value; pv.style.setProperty("--p", vol.value + "%"); } });
+  const sr = $("#setRate"); if (sr) sr.addEventListener("input", () => { setRate(+sr.value); sr.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); $("#setRateOut").textContent = fmtRate(P.rate); });
+  const kp = $('[data-pref="keepPitch"]'); if (kp) kp.addEventListener("change", applyRate);
+  const vz = $('[data-pref="visualizer"]'); if (vz) vz.addEventListener("change", () => { if (vz.checked) initAudioGraph(); if (P.cur) renderPlayer(); });
   const rp = $("#setRepeat"); if (rp) rp.addEventListener("change", () => { P.repeat = rp.value; store.set("repeat", P.repeat); if (P.cur) renderPlayer(); toast("Saved"); });
   const ep = $("#expPl");
   if (ep) ep.onclick = async () => { try { const lists = await PL.list(); download(`gdsr-playlists-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({format:"gdsr-playlists", version:1, playlists:lists.map(p => ({name:p.name, songs:p.songs || []}))}, null, 2)); } catch(e){ toast(e.message, true); } };
@@ -1732,7 +1816,7 @@ function render(opts = {}){
   const r = route(), y = window.scrollY;
   $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
   if (r.name !== "search" && document.activeElement !== hq) hq.value = "";
-  $("#queue").classList.remove("on"); toggleMenu(false);
+  $("#queue").classList.remove("on"); toggleMenu(false); toggleSpeed(false);
   if (NEEDS_DATA.has(r.name) && !DB.loaded){ app.innerHTML = skeleton(8); return; }
   if (["account","request","request-song","admin","settings"].includes(r.name) && !ME.ready){ app.innerHTML = skeleton(4); return; }
   let title = "The List";
@@ -1771,7 +1855,7 @@ let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTime
 (async function boot(){
   applyPrefs();
   $("#acctBtn").addEventListener("click", e => { e.stopPropagation(); toggleMenu(); });
-  document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); });
+  document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); if (!e.target.closest("#speedPop,#plSpd")) toggleSpeed(false); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#acctMenu").hidden){ toggleMenu(false); $("#acctBtn").focus(); } });
   $("#acctMenu").addEventListener("click", e => { if (e.target.closest("a")) toggleMenu(false); });
   renderHeader();
