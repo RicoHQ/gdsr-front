@@ -1188,6 +1188,7 @@ function settingsPanel(tab){
         <div class="set-row"><div class="lbl"><b>Repeat</b><span>What happens at the end of the queue.</span></div><div class="ctl"><select class="select" id="setRepeat">${[["off","Off"],["all","Repeat queue"],["one","Repeat song"]].map(([v, l]) => `<option value="${v}"${P.repeat === v ? " selected" : ""}>${l}</option>`).join("")}</select></div></div></div>`;
     case "display":
       return `<div class="set-card"><header><h2>Display</h2><p>Saved on this device.</p></header>
+        <div class="set-row" id="installRow">${installRowHtml()}</div>
         ${swRow("visualizer", "Music visualizer", "Animated bars in the player and on song pages while music plays.")}
         ${swRow("compact", "Compact lists", "Shorter rows that hide the second line, so more songs fit on screen.")}
         ${swRow("reduceMotion", "Reduce motion", "Turn off animations and transitions.")}
@@ -1225,6 +1226,7 @@ function mountSettings(tab){
   const soA = $("#soAll"); if (soA) soA.onclick = async () => { if (await confirmBox("Sign out on every device, including this one?", {ok:"Sign out everywhere", danger:true})){ await sb.auth.signOut({scope:"global"}); toast("Signed out everywhere"); location.hash = "list"; } };
   const vol = $("#setVol");
   if (vol) vol.addEventListener("input", () => { P.audio.volume = vol.value / 100; store.set("volume", P.audio.volume); vol.style.setProperty("--p", vol.value + "%"); $("#setVolOut").textContent = vol.value + "%"; const pv = $("#plVol"); if (pv){ pv.value = vol.value; pv.style.setProperty("--p", vol.value + "%"); } });
+  const ib = $("#installRowBtn"); if (ib) ib.onclick = installApp;
   const sr = $("#setRate"); if (sr) sr.addEventListener("input", () => { setRate(+sr.value); sr.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); $("#setRateOut").textContent = fmtRate(P.rate); });
   const kp = $('[data-pref="keepPitch"]'); if (kp) kp.addEventListener("change", applyRate);
   const vz = $('[data-pref="visualizer"]'); if (vz) vz.addEventListener("change", () => { if (vz.checked) initAudioGraph(); if (P.cur) renderPlayer(); });
@@ -1850,10 +1852,40 @@ document.addEventListener("keydown", e => {
 let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { drawChart(); if (P.cur) document.documentElement.style.setProperty("--player-h", $("#player").offsetHeight + "px"); }, 120); });
 
 /* =====================================================================
+   INSTALLABLE APP (PWA)
+   ===================================================================== */
+const PWA = { prompt:null, standalone: matchMedia("(display-mode: standalone)").matches || navigator.standalone === true };
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")){
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+window.addEventListener("beforeinstallprompt", e => {        // Chrome / Edge / Samsung Internet on Android (and desktop)
+  e.preventDefault(); PWA.prompt = e; updateInstallUI();
+});
+window.addEventListener("appinstalled", () => { PWA.prompt = null; PWA.standalone = true; updateInstallUI(); toast("GDSR installed. Open it from your home screen."); });
+function updateInstallUI(){
+  const b = $("#installBtn"); if (b) b.hidden = !PWA.prompt || PWA.standalone;
+  const row = $("#installRow"); if (row) row.innerHTML = installRowHtml();
+  const ib = $("#installRowBtn"); if (ib) ib.onclick = installApp;
+}
+async function installApp(){
+  if (!PWA.prompt){ toast(PWA.standalone ? "You're already using the installed app." : "Open this site in Chrome on Android, then use “Install app” or the browser menu → Add to Home screen.", !PWA.standalone); return; }
+  PWA.prompt.prompt();
+  const choice = await PWA.prompt.userChoice.catch(() => null);
+  if (choice && choice.outcome === "accepted") toast("Installing GDSR…");
+  PWA.prompt = null; updateInstallUI();
+}
+function installRowHtml(){
+  if (PWA.standalone) return `<div class="lbl"><b>Install app</b><span>You're using the installed app.</span></div><div class="ctl"><span class="badge approved">Installed</span></div>`;
+  return `<div class="lbl"><b>Install app</b><span>${PWA.prompt ? "Add GDSR to your home screen. It opens full-screen like a normal app." : "On Android, open this site in Chrome and choose Install app (or menu → Add to Home screen)."}</span></div><div class="ctl"><button class="btn ${PWA.prompt ? "primary" : ""}" id="installRowBtn" type="button" ${PWA.prompt ? "" : "disabled"}>Install</button></div>`;
+}
+
+/* =====================================================================
    BOOT
    ===================================================================== */
 (async function boot(){
   applyPrefs();
+  $("#installBtn").addEventListener("click", installApp);
+  if (PWA.standalone) document.body.classList.add("standalone");
   $("#acctBtn").addEventListener("click", e => { e.stopPropagation(); toggleMenu(); });
   document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); if (!e.target.closest("#speedPop,#plSpd")) toggleSpeed(false); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#acctMenu").hidden){ toggleMenu(false); $("#acctBtn").focus(); } });

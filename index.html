@@ -10,7 +10,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GDSR">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 <header class="hdr">
@@ -33,6 +39,7 @@
         <input id="hq" type="search" placeholder="Search songs, levels, IDs, creators…" autocomplete="off" enterkeyhint="search">
       </label>
     </form>
+    <button class="install-btn" id="installBtn" type="button" hidden aria-label="Install the GDSR app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span>Install app</span></button>
     <div class="menu-wrap">
       <button class="acct" id="acctBtn" type="button" aria-haspopup="menu" aria-expanded="false"><span class="av">?</span><span class="nm">Sign in</span></button>
       <div class="menu" id="acctMenu" role="menu" hidden></div>
@@ -56,6 +63,6 @@
 <div id="modalRoot"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
