@@ -461,3 +461,13 @@ body.reduce-motion *,body.reduce-motion *::before,body.reduce-motion *::after{an
 body.standalone .hdr{padding-top:env(safe-area-inset-top)}
 body.standalone .player{padding-bottom:env(safe-area-inset-bottom)}
 @media (max-width:760px){ .install-btn span{display:none} .install-btn{padding:7px 9px} .menu-wrap{margin-left:0} .install-btn{margin-left:auto} .install-btn[hidden] + .menu-wrap{margin-left:auto} }
+
+/* ---------- Authors ---------- */
+a.alink,a.plalink{position:relative;z-index:1;color:inherit;text-decoration:underline;text-decoration-color:rgba(138,163,149,.35);text-underline-offset:2px}
+a.alink:hover,a.plalink:hover{color:var(--accent-strong);text-decoration-color:currentColor}
+.pl-meta span a.plalink{display:inline;font-weight:inherit;font-size:inherit}
+.dl dd a{color:var(--accent-strong)}
+.a-top{display:flex;gap:12px;align-items:center;margin-bottom:4px}
+.a-top h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-top .grow{min-width:0}
+.avatar-md{width:42px;height:42px;flex:none;border-radius:50%;background:var(--accent-soft);color:var(--accent-strong);display:grid;place-items:center;font-weight:800;font-size:17px;border:1px solid var(--accent-line)}

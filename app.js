@@ -221,6 +221,7 @@ async function loadData(){
   await loadStats();
   DB.songById = Object.fromEntries(DB.songs.map(s => [s.id, s]));
   DB.levelById = Object.fromEntries(DB.levels.map(l => [l.id, l]));
+  buildAuthors();
   DB.loaded = true;
 }
 async function loadStats(){
@@ -260,6 +261,46 @@ function creditText(s){
   return TYPE_LABEL[s.type] || "Song";
 }
 const songHay = s => [s.name, s.author, s.type, s.song_id, creditText(s)].join(" ");
+
+/* ---------- Authors ---------- */
+const AUTHOR_SEP = /(\s*,\s*|\s*&\s*|\s+and\s+|\s+x\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+vs\.?\s+)/i;
+const splitAuthors = a => String(a || "").split(AUTHOR_SEP).filter((p, i) => i % 2 === 0).map(x => x.trim()).filter(Boolean);
+const AUTH = { byKey:{}, bySlug:{}, list:[] };
+function slugify(name){
+  let s = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!s){ let h = 0; for (const c of name) h = (h * 31 + c.codePointAt(0)) >>> 0; s = "a" + h.toString(36); }
+  return s.slice(0, 60);
+}
+function buildAuthors(){
+  AUTH.byKey = {}; AUTH.bySlug = {}; AUTH.list = [];
+  const get = name => {
+    const key = name.toLowerCase();
+    if (!AUTH.byKey[key]){
+      let slug = slugify(name), n = 2; while (AUTH.bySlug[slug]) slug = slugify(name) + "-" + n++;
+      const a = AUTH.byKey[key] = {name, key, slug, songs:[], featured:[]};
+      AUTH.bySlug[slug] = a; AUTH.list.push(a);
+    }
+    return AUTH.byKey[key];
+  };
+  DB.songs.forEach(s => splitAuthors(s.author).forEach(n => { const a = get(n); if (!a.songs.includes(s)) a.songs.push(s); }));
+  // mashups that use a song by this author
+  DB.songs.filter(s => s.type === "mashup").forEach(m => [m.song_a, m.song_b].map(id => DB.songById[id]).filter(Boolean)
+    .forEach(src => splitAuthors(src.author).forEach(n => { const a = AUTH.byKey[n.toLowerCase()]; if (a && !a.songs.includes(m) && !a.featured.includes(m)) a.featured.push(m); })));
+}
+const authorOf = name => AUTH.byKey[String(name || "").trim().toLowerCase()];
+function authorStats(a){
+  const scored = a.songs.map(overall).filter(v => v !== null);
+  return { count:a.songs.length, avg: scored.length ? scored.reduce((x, y) => x + y, 0) / scored.length : null,
+    votes: a.songs.reduce((t, s) => t + voteCount(s), 0), top: a.songs.slice().sort(byScore)[0] || null };
+}
+function authorLinks(str, q = "", cls = "alink"){
+  if (!str) return `<span class="faint">Unknown</span>`;
+  return String(str).split(AUTHOR_SEP).map((part, i) => {
+    if (i % 2) return esc(part);
+    const a = authorOf(part); if (!part.trim()) return esc(part);
+    return a ? `<a class="${cls}" href="#author-${a.slug}">${hl(part, q)}</a>` : hl(part, q);
+  }).join("");
+}
 const levelHay = l => [l.name, l.level_id, l.song_id, l.verifier, l.creators, l.difficulty].join(" ");
 
 /* =====================================================================
@@ -528,7 +569,7 @@ function renderPlayer(){
   el.classList.add("on");
   const paused = P.audio.paused;
   el.innerHTML = `<div class="pl-in" style="position:relative">
-    <div class="pl-song"><div class="pl-art">${PREFS.visualizer && !PREFS.reduceMotion ? `<canvas data-vis="mini" data-bars="7" aria-hidden="true"></canvas>` : ICON.music}</div><div class="pl-meta"><a href="#song-${s.id}">${esc(s.name)}</a><span>${esc(s.author || "")} · ${esc(TYPE_LABEL[s.type] || "")}</span></div></div>
+    <div class="pl-song"><div class="pl-art">${PREFS.visualizer && !PREFS.reduceMotion ? `<canvas data-vis="mini" data-bars="7" aria-hidden="true"></canvas>` : ICON.music}</div><div class="pl-meta"><a href="#song-${s.id}">${esc(s.name)}</a><span>${authorLinks(s.author, "", "plalink")} · ${esc(TYPE_LABEL[s.type] || "")}</span></div></div>
     <div class="pl-center">
       <div class="pl-ctrls">
         <button class="ib opt ${P.shuffle ? "on" : ""}" id="plShuf" type="button" aria-label="Shuffle" aria-pressed="${P.shuffle}">${ICON.shuffle}</button>
@@ -631,7 +672,7 @@ function songRow(s, rank, q){
   return `<div class="row" data-song="${s.id}">
     <span class="rank${rank && rank <= 3 ? " top" : ""}">${rank || "–"}</span>
     ${playBtn(s)}
-    <span class="ttl"><a class="t" href="#song-${s.id}">${hl(s.name, q)}</a><span class="sub">${hl(s.author || "Unknown", q)} · ${hl(creditText(s), q)}</span>
+    <span class="ttl"><a class="t" href="#song-${s.id}">${hl(s.name, q)}</a><span class="sub">${authorLinks(s.author, q)} · ${hl(creditText(s), q)}</span>
       <span class="meta">${typeBadge(s.type)}<span>ID ${hl(s.song_id ?? "—", q)}</span><span>${lenText(s.length)}</span></span></span>
     <span class="c-type">${typeBadge(s.type)}</span>
     <span class="c-id">${hl(s.song_id ?? "—", q)}</span>
@@ -697,7 +738,7 @@ function viewList(){
     <div class="toolbar-right">
       <label class="field"><span class="sr-only">Filter the list</span>${ICON.search}<input id="listQ" type="search" placeholder="Filter the list…" value="${esc(state.listQ)}" autocomplete="off"></label>
       <label><span class="sr-only">Sort by</span><select class="select" id="listSort">
-        ${[["score","Top score"],["votes","Most votes"],["newest","Newest"],["length","Longest"],["name","A–Z"]].map(([v,l]) => `<option value="${v}"${state.listSort === v ? " selected" : ""}>${l}</option>`).join("")}
+        ${[["score","Top score"],["votes","Most votes"],["newest","Newest"],["length","Longest"],["name","A–Z"],["author","Author A–Z"]].map(([v,l]) => `<option value="${v}"${state.listSort === v ? " selected" : ""}>${l}</option>`).join("")}
       </select></label>
       <button class="btn" id="listPlay" type="button">${ICON.play} Play all</button>
     </div>
@@ -706,7 +747,8 @@ function viewList(){
 }
 function listFiltered(){
   const sorters = {score:byScore, votes:(a,b) => voteCount(b) - voteCount(a), newest:(a,b) => String(b.created_at).localeCompare(String(a.created_at)),
-    length:(a,b) => (parseLen(b.length) || 0) - (parseLen(a.length) || 0), name:(a,b) => a.name.localeCompare(b.name)};
+    length:(a,b) => (parseLen(b.length) || 0) - (parseLen(a.length) || 0), name:(a,b) => a.name.localeCompare(b.name),
+    author:(a,b) => (splitAuthors(a.author)[0] || "~").localeCompare(splitAuthors(b.author)[0] || "~", undefined, {sensitivity:"base"}) || byScore(a, b)};
   return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(sorters[state.listSort]);
 }
 function renderListBody(){
@@ -839,7 +881,7 @@ function viewSong(s){
   return `<nav class="crumbs" aria-label="Breadcrumb"><a href="#list">The List</a><span>/</span>${first ? `<a href="#level-${first.id}">${esc(first.name)}</a><span>/</span>` : ""}<span>Song ID ${esc(s.song_id ?? "—")}</span></nav>
   <section class="page-head song-head">
     <div><div class="badges">${typeBadge(s.type)}${rank ? `<span class="pill mono">#${rank} of ${DB.songs.length}</span>` : ""}<span class="pill mono">ID ${esc(s.song_id ?? "—")}</span></div>
-      <h1>${esc(s.name)}</h1><p class="lead">${s.type === "original" ? "by" : esc(TYPE_LABEL[s.type] || "") + " by"} ${esc(s.author || "Unknown")}</p>
+      <h1>${esc(s.name)}</h1><p class="lead">${s.type === "original" ? "by" : esc(TYPE_LABEL[s.type] || "") + " by"} ${authorLinks(s.author, "", "link")}</p>
       <div class="btns" style="margin-top:14px">
         <button class="btn primary" type="button" data-play="${s.id}" ${s.audio_file ? "" : "disabled"}>${ICON.play} ${s.audio_file ? "Play" : "No audio yet"}</button>
         <button class="btn" type="button" id="songQueue" ${s.audio_file ? "" : "disabled"}>${ICON.list} Play next</button>
@@ -865,7 +907,7 @@ function viewSong(s){
       <section class="card card-pad o-details"><h3>Details</h3>
         <dl class="dl">
           <dt>Song ID</dt><dd class="mono">${esc(s.song_id ?? "—")}</dd>
-          <dt>Author</dt><dd>${esc(s.author || "—")}</dd>
+          <dt>Author</dt><dd>${authorLinks(s.author, "", "")}</dd>
           <dt>Type</dt><dd>${esc(TYPE_LABEL[s.type] || "—")}</dd>
           ${s.type === "mashup" ? `<dt>Songs</dt><dd>${[s.song_a, s.song_b].map(id => DB.songById[id] ? `<a href="#song-${id}">${esc(DB.songById[id].name)}</a>` : "—").join(" + ")}</dd>` : ""}
           <dt>Length</dt><dd class="mono">${esc(lenText(s.length))}</dd>
@@ -1046,15 +1088,17 @@ function renderSearch(){
   const q = state.searchQ.trim(), sum = $("#searchSummary"); if (!sum) return;
   const songs = q ? DB.songs.filter(s => matches(songHay(s), q)).sort(byScore) : [];
   const lvls = q ? DB.levels.filter(l => matches(levelHay(l), q)) : [];
-  sum.innerHTML = q ? `${songs.length + lvls.length} result${songs.length + lvls.length === 1 ? "" : "s"} for “<b style="color:var(--text)">${esc(q)}</b>” across all levels.` : "Type in the search bar above to search every song and level.";
-  $("#searchTabs").innerHTML = [["all","All",songs.length + lvls.length],["songs","Songs",songs.length],["levels","Levels",lvls.length]]
+  const auths = q ? AUTH.list.filter(a => matches(a.name, q)).sort((x, y) => y.songs.length - x.songs.length) : [];
+  sum.innerHTML = q ? `${songs.length + lvls.length + auths.length} result${songs.length + lvls.length + auths.length === 1 ? "" : "s"} for “<b style="color:var(--text)">${esc(q)}</b>” across all levels.` : "Type in the search bar above to search every song and level.";
+  $("#searchTabs").innerHTML = [["all","All",songs.length + lvls.length + auths.length],["songs","Songs",songs.length],["authors","Authors",auths.length],["levels","Levels",lvls.length]]
     .map(([v,l,n]) => `<button class="chip" type="button" data-v="${v}" aria-pressed="${state.searchTab === v}">${l}<span class="n">${n}</span></button>`).join("");
   const rankMap = new Map(ranked().filter(s => overall(s) !== null).map((s, i) => [s, i + 1]));
   let html = "";
   if (!q) html = `<div class="table">${emptyState("Start typing", "Search by song, artist, level name, level ID, song ID or creator.")}</div>`;
   else {
-    if (state.searchTab !== "levels") html += `<section style="margin-bottom:28px"><div class="section-head"><h2>Songs</h2></div><div class="table" id="srSongs">${songs.length ? tableHead() + songs.map(s => songRow(s, rankMap.get(s), q)).join("") : emptyState("No songs found", "Try fewer words or a song ID.")}</div></section>`;
-    if (state.searchTab !== "songs") html += `<section><div class="section-head"><h2>Levels</h2></div>${lvls.length ? `<div class="grid">${lvls.map(l => levelCard(l, q)).join("")}</div>` : `<div class="table">${emptyState("No levels found", "Try a level name, ID or creator.")}</div>`}</section>`;
+    if (state.searchTab === "all" || state.searchTab === "authors") html += auths.length ? `<section style="margin-bottom:28px"><div class="section-head"><h2>Authors</h2></div><div class="grid">${auths.map(a => authorCard(a, q)).join("")}</div></section>` : (state.searchTab === "authors" ? `<div class="table">${emptyState("No authors found", "Try part of a name.")}</div>` : "");
+    if (state.searchTab === "all" || state.searchTab === "songs") html += `<section style="margin-bottom:28px"><div class="section-head"><h2>Songs</h2></div><div class="table" id="srSongs">${songs.length ? tableHead() + songs.map(s => songRow(s, rankMap.get(s), q)).join("") : emptyState("No songs found", "Try fewer words or a song ID.")}</div></section>`;
+    if (state.searchTab === "all" || state.searchTab === "levels") html += `<section><div class="section-head"><h2>Levels</h2></div>${lvls.length ? `<div class="grid">${lvls.map(l => levelCard(l, q)).join("")}</div>` : `<div class="table">${emptyState("No levels found", "Try a level name, ID or creator.")}</div>`}</section>`;
   }
   $("#searchResults").innerHTML = html;
   bindPlayButtons($("#searchResults"), songs.map(s => s.id));
@@ -1062,6 +1106,84 @@ function renderSearch(){
 function mountSearch(){
   renderSearch();
   $("#searchTabs").addEventListener("click", e => { const b = e.target.closest(".chip"); if (!b) return; state.searchTab = b.dataset.v; renderSearch(); });
+}
+
+/* =====================================================================
+   VIEW: AUTHORS
+   ===================================================================== */
+function authorCard(a, q){
+  const st = authorStats(a), types = TYPES.map(t => [t, a.songs.filter(s => s.type === t).length]).filter(x => x[1]);
+  return `<a class="lvcard acard" href="#author-${a.slug}">
+    <div class="a-top"><span class="avatar-md">${esc(a.name.slice(0, 1).toUpperCase())}</span><span class="grow"><h3>${hl(a.name, q)}</h3><p class="muted small">${st.count} song${st.count === 1 ? "" : "s"}${a.featured.length ? ` · in ${a.featured.length} mashup${a.featured.length === 1 ? "" : "s"}` : ""}</p></span></div>
+    <div class="lv-meta" style="grid-template-columns:1fr 1fr"><span><small>Avg score</small><b class="mono" style="color:${scoreColor(st.avg)}">${fmt(st.avg)}</b></span><span><small>Votes</small><b class="mono">${num(st.votes)}</b></span></div>
+    <div class="lv-foot"><span>${types.map(([t, n]) => `${n} ${n === 1 ? TYPE_LABEL[t].toLowerCase() : PLURAL[t].toLowerCase()}`).join(" · ")}</span></div>
+    ${st.top ? `<p class="small muted" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Top: <span style="color:var(--text)">${esc(st.top.name)}</span></p>` : ""}
+  </a>`;
+}
+function viewAuthors(){
+  return `${dataNotice()}<section class="hero single"><div><p class="eyebrow">Browse</p><h1>Authors</h1><p class="lead">Everyone who made a song, mashup, cover or remix on GDSR. Pick one to see all their songs.</p></div></section>
+  <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
+    <label class="field" style="flex:1 1 320px"><span class="sr-only">Search authors</span>${ICON.search}<input id="auQ" type="search" placeholder="Search authors…" value="${esc(state.auQ || "")}" autocomplete="off"></label>
+    <label><span class="sr-only">Sort authors</span><select class="select" id="auSort">${[["songs","Most songs"],["score","Top average score"],["votes","Most votes"],["name","A–Z"]].map(([v, l]) => `<option value="${v}"${(state.auSort || "songs") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+  </div></div><div id="auBody"></div>`;
+}
+function renderAuthorsBody(){
+  const q = state.auQ || "", sort = state.auSort || "songs";
+  const cmp = {songs:(a, b) => b.songs.length - a.songs.length || a.name.localeCompare(b.name), name:(a, b) => a.name.localeCompare(b.name, undefined, {sensitivity:"base"}),
+    score:(a, b) => { const x = authorStats(a).avg, y = authorStats(b).avg; return (y ?? -1) - (x ?? -1); }, votes:(a, b) => authorStats(b).votes - authorStats(a).votes}[sort];
+  const list = AUTH.list.filter(a => matches(a.name, q)).sort(cmp);
+  $("#auBody").innerHTML = list.length ? `<div class="grid">${list.map(a => authorCard(a, q)).join("")}</div>`
+    : `<div class="table">${emptyState(AUTH.list.length ? "No authors match" : "No authors yet", AUTH.list.length ? "Try part of a name." : "Authors appear once songs are added.")}</div>`;
+}
+function mountAuthors(){
+  renderAuthorsBody();
+  $("#auQ").addEventListener("input", e => { state.auQ = e.target.value; renderAuthorsBody(); });
+  $("#auSort").addEventListener("change", e => { state.auSort = e.target.value; renderAuthorsBody(); });
+}
+function viewAuthor(a){
+  const st = authorStats(a), songs = a.songs.slice().sort(byScore);
+  const songIds = [...new Set(a.songs.map(s => s.song_id).filter(v => v !== null && v !== undefined))];
+  const lvls = DB.levels.filter(l => songIds.includes(l.song_id));
+  return `<a class="back" href="#authors">${ICON.back} All authors</a>
+  <section class="page-head"><div style="display:flex;gap:16px;align-items:center">
+      <div class="avatar-lg">${esc(a.name.slice(0, 1).toUpperCase())}</div>
+      <div><p class="eyebrow" style="margin-bottom:4px">Author</p><h1 style="font-size:32px">${esc(a.name)}</h1></div></div>
+    <div class="btns"><button class="btn primary" id="auPlay" type="button">${ICON.play} Play all</button><button class="btn" id="auShuffle" type="button">${ICON.shuffle} Shuffle</button><button class="btn" id="auSave" type="button">${ICON.plus} Save as playlist</button></div></section>
+  <div class="stats" style="margin:16px 0 0">
+    <div class="stat"><b>${st.count}</b><span>Songs</span></div>
+    <div class="stat"><b style="color:${scoreColor(st.avg)}">${fmt(st.avg)}</b><span>Average score</span></div>
+    <div class="stat"><b>${num(st.votes)}</b><span>Votes</span></div>
+    <div class="stat"><b>${a.featured.length}</b><span>Used in mashups</span></div>
+  </div>
+  <section class="section">
+    <div class="section-head"><div><h2>Songs by ${esc(a.name)}</h2><p class="muted small">Ranked by score.</p></div></div>
+    <div class="toolbar">${chips("auChips", typeOptions(songs), state.auType || "all")}
+      <div class="toolbar-right"><label><span class="sr-only">Sort</span><select class="select" id="auSongSort">${[["score","Top score"],["votes","Most votes"],["newest","Newest"],["name","A–Z"]].map(([v, l]) => `<option value="${v}"${(state.auSongSort || "score") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label></div></div>
+    <div class="table" id="auSongs"></div>
+  </section>
+  ${a.featured.length ? `<section class="section"><div class="section-head"><div><h2>Featured in mashups</h2><p class="muted small">Mashups made by others that use a song by ${esc(a.name)}.</p></div></div><div class="table compact" id="auFeat">${a.featured.slice().sort(byScore).map((s, i) => songRow(s, i + 1, "")).join("")}</div></section>` : ""}
+  ${lvls.length ? `<section class="section"><div class="section-head"><h2>Levels using their songs</h2></div><div class="grid">${lvls.map(l => levelCard(l)).join("")}</div></section>` : ""}`;
+}
+function authorSongsFiltered(a){
+  const t = state.auType || "all", sort = state.auSongSort || "score";
+  const cmp = {score:byScore, votes:(x, y) => voteCount(y) - voteCount(x), newest:(x, y) => String(y.created_at).localeCompare(String(x.created_at)), name:(x, y) => x.name.localeCompare(y.name)}[sort];
+  return a.songs.filter(s => t === "all" || s.type === t).sort(cmp);
+}
+function renderAuthorSongs(a){
+  const rankMap = new Map(ranked().filter(s => overall(s) !== null).map((s, i) => [s, i + 1]));
+  const list = authorSongsFiltered(a), el = $("#auSongs");
+  el.innerHTML = list.length ? tableHead() + list.map(s => songRow(s, rankMap.get(s), "")).join("") : emptyState("No songs of this type");
+  bindPlayButtons(el, list.map(s => s.id));
+}
+function mountAuthor(a){
+  state.auType = "all";
+  renderAuthorSongs(a);
+  const feat = $("#auFeat"); if (feat) bindPlayButtons(feat, a.featured.map(s => s.id));
+  bindChips($("#auChips"), v => { state.auType = v; renderAuthorSongs(a); });
+  $("#auSongSort").addEventListener("change", e => { state.auSongSort = e.target.value; renderAuthorSongs(a); });
+  $("#auPlay").onclick = () => { const was = P.shuffle; P.shuffle = false; P.playList(authorSongsFiltered(a).map(s => s.id), 0, a.name); P.shuffle = was; };
+  $("#auShuffle").onclick = () => P.playList(shuffleArr(authorSongsFiltered(a).map(s => s.id)), 0, a.name);
+  $("#auSave").onclick = async () => { try { const p = await PL.create(`Songs by ${a.name}`, a.songs.slice().sort(byScore).map(s => s.id)); toast(`Saved “${p.name}”`); } catch(e){ toast(e.message, true); } };
 }
 
 /* =====================================================================
@@ -1802,7 +1924,8 @@ async function admStorage(main){
 function route(){
   const h = decodeURIComponent(location.hash.slice(1)); let m;
   if (!h || h === "list") return {name:"list"};
-  if (["levels","search","login","signup","account","playlists","request","request-song"].includes(h)) return {name:h};
+  if (["levels","authors","search","login","signup","account","playlists","request","request-song"].includes(h)) return {name:h};
+  if ((m = h.match(/^author-([\w-]+)$/))) return {name:"author", id:m[1]};
   if (h === "settings") return {name:"settings", id:""};
   if ((m = h.match(/^settings-([a-z]+)$/))) return {name:"settings", id:m[1]};
   if (h === "admin") return {name:"admin", id:"overview"};
@@ -1813,10 +1936,10 @@ function route(){
   if (/^(access_token|error)=/.test(h)) return {name:"list"};   // auth redirect fragments
   return {name:"404"};
 }
-const NEEDS_DATA = new Set(["list","levels","level","song","search","request","request-song","playlists","playlist","admin","account"]);
+const NEEDS_DATA = new Set(["list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
-  $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
+  $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "author" && a.dataset.nav === "authors") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
   if (r.name !== "search" && document.activeElement !== hq) hq.value = "";
   $("#queue").classList.remove("on"); toggleMenu(false); toggleSpeed(false);
   if (NEEDS_DATA.has(r.name) && !DB.loaded){ app.innerHTML = skeleton(8); return; }
@@ -1825,6 +1948,8 @@ function render(opts = {}){
   switch (r.name){
     case "list": app.innerHTML = viewList(); mountList(); break;
     case "levels": title = "Levels"; app.innerHTML = viewLevels(); mountLevels(); break;
+    case "authors": title = "Authors"; app.innerHTML = viewAuthors(); mountAuthors(); break;
+    case "author": { const a = AUTH.bySlug[r.id]; if (!a){ notFound(); title = "Not found"; break; } title = a.name; app.innerHTML = viewAuthor(a); mountAuthor(a); break; }
     case "search": title = "Search"; hq.value = state.searchQ; app.innerHTML = viewSearch(); mountSearch(); break;
     case "level": { const lv = DB.levelById[r.id]; if (!lv){ notFound(); title = "Not found"; break; } title = lv.name; app.innerHTML = viewLevel(lv); mountLevel(lv); break; }
     case "song": { const s = DB.songById[r.id]; if (!s){ notFound(); title = "Not found"; break; } title = s.name; app.innerHTML = viewSong(s); mountSong(s); break; }

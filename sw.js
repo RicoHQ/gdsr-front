@@ -1,7 +1,7 @@
 /* GDSR service worker: makes the site installable and keeps the app shell available offline.
    Database requests and audio are never cached. */
-const VERSION = "gdsr-v6";
-const SHELL = ["./", "index.html", "styles.css?v=6", "app.js?v=6", "manifest.webmanifest",
+const VERSION = "gdsr-v7";
+const SHELL = ["./", "index.html", "styles.css?v=7", "app.js?v=7", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
 const CDN = ["cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"];
 
