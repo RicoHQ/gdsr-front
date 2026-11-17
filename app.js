@@ -183,6 +183,11 @@ const ICON = {
   gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
   logout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
+  flag:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-1.5 4L16 12H5"/></svg>',
+  rated:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-7.5-4.6-9.3-9.2C1.4 7.9 3.6 4.5 7.1 4.5c2 0 3.6 1.1 4.9 2.8 1.3-1.7 2.9-2.8 4.9-2.8 3.5 0 5.7 3.4 4.4 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>',
+  video:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="14" height="13" rx="2.5"/><path d="m16.5 10.5 5-3v9l-5-3z"/></svg>',
+  bars:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="11" width="3" height="9" rx="1"/><rect x="8.5" y="6" width="3" height="14" rx="1"/><rect x="14" y="9" width="3" height="11" rx="1"/><rect x="19.5" y="4" width="3" height="16" rx="1"/></svg>',
   ext:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>'
 };
 
@@ -196,8 +201,8 @@ const DIFF = {"Auto":"#9fb3a8","Easy":"#5ec8f0","Normal":"#5fd36b","Hard":"#f0c6
 const DIFF_ORDER = Object.keys(DIFF);
 
 const DB = { loaded:false, error:null, levels:[], songs:[], songIds:[], stats:{}, statsSource:"view", songById:{}, levelById:{} };
-const ME = { user:null, profile:null, isAdmin:false, ready:false };
-const PREF_DEFAULTS = { autoplay:true, shuffleDefault:false, compact:false, reduceMotion:false, showNoAudio:true, visualizer:true, keepPitch:false };
+const ME = { user:null, profile:null, isAdmin:false, ready:false, rated:new Set(), faved:new Set() };
+const PREF_DEFAULTS = { autoplay:true, shuffleDefault:false, compact:false, reduceMotion:false, showNoAudio:true, visualizer:true, keepPitch:false, markRated:true, markFav:true, songMedia:"video" };
 const PREFS = Object.assign({}, PREF_DEFAULTS, store.get("prefs", {}));
 function setPref(k, v){ PREFS[k] = v; store.set("prefs", PREFS); applyPrefs(); }
 function applyPrefs(){ document.body.classList.toggle("compact", !!PREFS.compact); document.body.classList.toggle("reduce-motion", !!PREFS.reduceMotion); }
@@ -330,8 +335,24 @@ async function refreshMe(session){
     try { const r = await run(sb.rpc("has_role", {_user_id: ME.user.id, _role: "admin"})); ME.isAdmin = r.data === true; }
     catch(_){ try { const r = await run(sb.from("user_roles").select("role").eq("user_id", ME.user.id)); ME.isAdmin = (r.data || []).some(x => x.role === "admin"); } catch(_){} }
   }
+  await loadMarks();
   ME.ready = true;
   renderHeader();
+}
+/* which songs the signed-in user has rated / picked a favourite part on (for the list indicators) */
+async function loadMarks(){
+  const rated = new Set(), faved = new Set();
+  if (ME.user){
+    const uid = ME.user.id, ids = (t, sink) => sb.from(t).select("song").eq("user_id", uid).limit(10000).then(r => (r.data || []).forEach(x => sink.add(x.song)), () => {});
+    await Promise.all([ids("votes", rated), ids("song_b_votes", rated), ids("favourite_parts", faved)]);
+  }
+  ME.rated = rated; ME.faved = faved;
+}
+function marks(s){
+  if (!ME.user) return "";
+  const r = PREFS.markRated && ME.rated.has(s.id), f = PREFS.markFav && ME.faved.has(s.id);
+  if (!r && !f) return "";
+  return `<span class="marks">${r ? `<span class="mk mk-r" title="You rated this" aria-label="You rated this">${ICON.rated}</span>` : ""}${f ? `<span class="mk mk-f" title="You picked a favourite part" aria-label="You picked a favourite part">${ICON.heart}</span>` : ""}</span>`;
 }
 const myName = () => (ME.profile && ME.profile.username) || (ME.user && ((ME.user.user_metadata || {}).username || (ME.user.email || "").split("@")[0])) || "";
 function renderHeader(){
@@ -689,7 +710,7 @@ function songRow(s, rank, q){
   return `<div class="row" data-song="${s.id}">
     <span class="rank${rank && rank <= 3 ? " top" : ""}">${rank || "–"}</span>
     ${playBtn(s)}
-    <span class="ttl"><a class="t" href="#song-${s.id}">${hl(s.name, q)}</a><span class="sub">${authorLinks(s.author, q)} · ${hl(creditText(s), q)}</span>
+    <span class="ttl"><span class="tline"><a class="t" href="#song-${s.id}">${hl(s.name, q)}</a>${marks(s)}</span><span class="sub">${authorLinks(s.author, q)} · ${hl(creditText(s), q)}</span>
       <span class="meta">${typeBadge(s.type)}<span>ID ${hl(s.song_id ?? "—", q)}</span><span>${lenText(s.length)}</span></span></span>
     <span class="c-type">${typeBadge(s.type)}</span>
     <span class="c-id">${hl(s.song_id ?? "—", q)}</span>
@@ -839,7 +860,7 @@ function viewLevel(lv){
   </dl>
   <section class="section">
     <div class="section-head"><div><h2>Songs for this level</h2><p class="muted small">Everything uploaded to song ID <span class="mono">${esc(lv.song_id ?? "—")}</span>, ranked by score.</p></div>
-      <div class="btns"><button class="btn" id="lvlPlay" type="button">${ICON.play} Play all</button><a class="btn" href="#request-song">${ICON.plus} Request a song</a></div></div>
+      <div class="btns"><button class="btn" id="lvlPlay" type="button">${ICON.play} Play all</button><a class="btn" href="#request-song">${ICON.plus} Request a song</a><button class="btn ghost" type="button" data-report="level" data-rid="${lv.id}">${ICON.flag} Report level</button></div></div>
     <div class="toolbar">${chips("lvlChips", typeOptions(list), state.levelType[lv.id] || "all")}
       <div class="toolbar-right"><label class="field"><span class="sr-only">Search songs in this level</span>${ICON.search}<input id="lvlQ" type="search" placeholder="Search songs in ${esc(lv.name)}…" value="${esc(state.levelQ[lv.id] || "")}" autocomplete="off"></label></div></div>
     <div class="table" id="lvlBody"></div>
@@ -858,7 +879,7 @@ function renderLevelSongs(lv){
   bindPlayButtons(el, list.map(s => s.id));
 }
 function mountLevel(lv){
-  renderLevelSongs(lv); bindCopy(app);
+  renderLevelSongs(lv); bindCopy(app); bindReport(app);
   bindChips($("#lvlChips"), v => { state.levelType[lv.id] = v; renderLevelSongs(lv); });
   $("#lvlQ").addEventListener("input", e => { state.levelQ[lv.id] = e.target.value; renderLevelSongs(lv); });
   $("#lvlPlay").onclick = () => P.playList(levelSongsFiltered(lv).map(s => s.id), 0, lv.name);
@@ -871,13 +892,25 @@ function ring(s){
   const C = 2 * Math.PI * 52, c = scoreColor(s);
   return `<div class="ring" role="img" aria-label="Overall score ${fmt(s)} out of 100"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="#1d2b23" stroke-width="9"/><circle cx="60" cy="60" r="52" fill="none" stroke="${c}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - (s || 0) / 100)}"/></svg><div class="v"><b style="color:${c}">${fmt(s)}</b><span>/ 100</span></div></div>`;
 }
-function videoBlock(s){
+function mediaMode(s){
+  const hasV = !!ytId(s.video), hasA = !!s.audio_file;
+  if (hasV && hasA) return PREFS.songMedia === "bars" ? "bars" : "video";
+  return hasV ? "video" : "bars";
+}
+function mediaBlock(s){
+  const both = !!ytId(s.video) && !!s.audio_file, m = mediaMode(s);
+  const tabs = both ? `<div class="media-bar"><div class="seg seg-sm" role="radiogroup" aria-label="Show on this page">
+      <label><input type="radio" name="mediaMode" value="video" ${m === "video" ? "checked" : ""}><span>${ICON.video} YouTube video</span></label>
+      <label><input type="radio" name="mediaMode" value="bars" ${m === "bars" ? "checked" : ""}><span>${ICON.bars} Music bars</span></label></div></div>` : "";
+  return `<div class="o-media">${tabs}<div id="mediaBox">${videoBlock(s, m)}</div></div>`;
+}
+function videoBlock(s, mode){
   const id = ytId(s.video);
-  if (id) return `<div class="video o-video"><iframe src="https://www.youtube-nocookie.com/embed/${id}" title="${esc(s.name)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`;
+  if (id && mode !== "bars") return `<div class="video o-video"><iframe src="https://www.youtube-nocookie.com/embed/${id}" title="${esc(s.name)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`;
   return `<div class="video o-video">${s.audio_file && PREFS.visualizer && !PREFS.reduceMotion ? `<canvas class="big-vis" data-vis="big" data-bars="48" data-song="${s.id}" aria-hidden="true"></canvas>` : ""}<div class="video-ov">
     ${s.audio_file ? `<button class="bigplay" type="button" data-play="${s.id}" aria-label="Play">${ICON.play}</button>` : ""}
     <span class="vt">${esc(s.name)}</span>
-    <span class="vs">${s.audio_file ? "No video yet. Press play to listen." : "No video or audio yet."}${s.video ? ` <a class="link" href="${esc(s.video)}" target="_blank" rel="noopener">Open link ↗</a>` : ""}</span></div></div>`;
+    <span class="vs">${!s.audio_file ? "No video or audio yet." : id ? (PREFS.visualizer && !PREFS.reduceMotion ? "Press play to see the music bars." : `Press play to listen. <a class="link" href="#settings-display">Turn on the visualizer</a> to see bars.`) : "No video yet. Press play to listen."}${s.video && !id ? ` <a class="link" href="${esc(s.video)}" target="_blank" rel="noopener">Open link ↗</a>` : ""}</span></div></div>`;
 }
 function breakdownCard(s){
   const v = overall(s);
@@ -908,12 +941,13 @@ function viewSong(s){
         <button class="btn" type="button" id="songQueue" ${s.audio_file ? "" : "disabled"}>${ICON.list} Play next</button>
         <button class="btn" type="button" id="songAdd">${ICON.plus} Add to playlist</button>
         <button class="btn ghost" type="button" data-copy="${s.id}">${ICON.copy} Copy song ID</button>
+        <button class="btn ghost" type="button" data-report="song" data-rid="${s.id}">${ICON.flag} Report</button>
       </div></div>
     ${ring(overall(s))}
   </section>
   <div class="song-grid">
     <div class="col-main">
-      ${videoBlock(s)}
+      ${mediaBlock(s)}
       <section class="card o-chart">
         <div class="card-head"><h2>Favourite parts</h2><p class="muted small">How many players picked each moment as their favourite.${ME.user ? " Tap or click the graph to choose yours." : ` <a class="link" href="#login">Sign in</a> to pick yours.`}</p></div>
         <div class="chart" id="chart" tabindex="0" role="application" aria-label="Favourite parts graph"></div>
@@ -1005,7 +1039,7 @@ function renderRateCardExtB(s, el){
 }
 async function afterVoteChange(s){
   try { await sb.rpc("recalc_song", {_song:s.id}); } catch(_){}
-  const [st, sg] = await Promise.all([loadStats(), sb.from("songs").select("*").eq("id", s.id).maybeSingle()]);
+  const [st, sg] = await Promise.all([loadStats(), sb.from("songs").select("*").eq("id", s.id).maybeSingle(), loadMarks()]);
   if (sg && sg.data){ Object.assign(DB.songById[s.id], sg.data); }
   render({keepScroll:true});
 }
@@ -1114,10 +1148,15 @@ async function saveFav(time){
     await refreshFavs(); toast(`Favourite set to ${mmss(time)}`);
   } catch(e){ toast(e.message, true); }
 }
-async function refreshFavs(){ await loadSongExtras(songCtx.song); drawChart(); renderChartActions(); }
+async function refreshFavs(){ await loadSongExtras(songCtx.song); if (songCtx.myFav) ME.faved.add(songCtx.song.id); else ME.faved.delete(songCtx.song.id); drawChart(); renderChartActions(); }
 async function mountSong(s){
   bindCopy(app); bindPlayButtons(app, [s.id, ...songsFor(s.song_id).filter(x => x.id !== s.id).map(x => x.id)]); startVis();
   $("#songAdd").onclick = () => openAddToPlaylist(s.id);
+  bindReport(app);
+  $$('input[name="mediaMode"]', app).forEach(r => r.addEventListener("change", () => {
+    PREFS.songMedia = r.value; store.set("prefs", PREFS);
+    $("#mediaBox").innerHTML = videoBlock(s, r.value); bindPlayButtons($("#mediaBox"), [s.id]); startVis();
+  }));
   $("#songQueue").onclick = () => P.enqueue(s.id);
   $("#rateCard").innerHTML = `<h3>Rate</h3><p class="muted small">Loading…</p>`;
   $("#chart").innerHTML = `<div class="skel" style="height:200px;border:0"></div>`;
@@ -1284,6 +1323,53 @@ function mountAuth(mode){
 }
 
 /* =====================================================================
+   REPORTS (users flag a song or level for admins)
+   ===================================================================== */
+const REPORT_REASONS = [
+  ["wrong_info", "Wrong information", "Name, author, song ID, length or another detail is wrong", ["song","level"]],
+  ["broken_audio", "Audio doesn't play", "The audio is missing, broken or the wrong song", ["song"]],
+  ["broken_video", "Video doesn't work", "The YouTube video is unavailable or doesn't match", ["song"]],
+  ["duplicate", "Duplicate", "This is already on GDSR", ["song","level"]],
+  ["inappropriate", "Inappropriate content", "Offensive title, audio or video", ["song","level"]],
+  ["spam", "Spam", "Not a real song or level", ["song","level"]],
+  ["other", "Something else", "Explain below", ["song","level"]]
+];
+const REASON_LABEL = Object.fromEntries(REPORT_REASONS.map(r => [r[0], r[1]]));
+const reportTarget = (type, id) => type === "level" ? DB.levelById[id] : DB.songById[id];
+function bindReport(root){ $$("[data-report]", root).forEach(b => b.onclick = () => openReport(b.dataset.report, b.dataset.rid)); }
+function openReport(type, id){
+  if (!ME.user){ toast("Sign in to report something.", true); location.hash = "login"; return; }
+  const tgt = reportTarget(type, id); if (!tgt) return;
+  const reasons = REPORT_REASONS.filter(r => r[3].includes(type));
+  const bg = openModal({title:`Report ${type === "level" ? "level" : "song"}`,
+    body:`<form class="form" id="repForm" novalidate>
+      <p class="muted small" style="margin:0">Reporting <b style="color:var(--text)">${esc(tgt.name)}</b>. Admins review every report.</p>
+      <fieldset class="rep-reasons"><legend class="sr-only">Reason</legend>${reasons.map(([v, l, d], i) => `<label class="rep-opt"><input type="radio" name="reason" value="${v}" ${i === 0 ? "checked" : ""}><span><b>${l}</b><small>${d}</small></span></label>`).join("")}</fieldset>
+      <label class="f"><span>Details <span class="faint small" id="repReq">(optional)</span></span><textarea class="textarea" name="details" rows="3" maxlength="1000" placeholder="What's wrong? Links or timestamps help."></textarea></label>
+      <p class="msg" id="repMsg" hidden></p></form>`,
+    foot:`<button class="btn ghost" data-close type="button">Cancel</button><button class="btn danger" id="repSend" type="button">${ICON.flag} Send report</button>`});
+  const form = $("#repForm", bg), msg = $("#repMsg", bg);
+  const sync = () => { $("#repReq", bg).textContent = form.reason.value === "other" ? "(required)" : "(optional)"; };
+  form.addEventListener("change", sync);
+  const send = async () => {
+    const reason = form.reason.value, details = form.details.value.trim() || null;
+    msg.hidden = true;
+    if (reason === "other" && !details){ msg.hidden = false; msg.textContent = "Tell us what's wrong."; form.details.focus(); return; }
+    const btn = $("#repSend", bg); btn.disabled = true;
+    try {
+      await run(sb.from("reports").insert({user_id:ME.user.id, target_type:type, target_id:id, reason, details}));
+      closeModal(); toast("Report sent. Thanks, an admin will take a look.");
+    } catch(e){
+      btn.disabled = false; msg.hidden = false;
+      msg.textContent = /duplicate|unique/i.test(e.message) ? "You already have an open report on this. An admin will look at it soon." : missingRelation(e) ? "Reports aren't set up on the database yet." : e.message;
+    }
+  };
+  $("#repSend", bg).onclick = send;
+  form.addEventListener("submit", e => { e.preventDefault(); send(); });
+}
+const reportTargetLink = r => { const x = reportTarget(r.target_type, r.target_id); return x ? `<a class="link" href="#${r.target_type}-${r.target_id}">${esc(x.name)}</a>` : `<span class="faint">Deleted ${esc(r.target_type)}</span>`; };
+
+/* =====================================================================
    VIEW: ACCOUNT
    ===================================================================== */
 function viewAccount(){
@@ -1299,6 +1385,7 @@ function viewAccount(){
   <div class="song-grid" style="margin-top:0;grid-template-columns:1fr 1fr">
     <section class="card card-pad"><h3>My requests</h3><div id="myReqs"><p class="muted small">Loading…</p></div></section>
     <section class="card card-pad"><h3>My votes</h3><div id="myVotes"><p class="muted small">Loading…</p></div></section>
+    <section class="card card-pad"><h3>My reports</h3><div id="myReports"><p class="muted small">Loading…</p></div></section>
   </div>`;
 }
 async function mountAccount(){
@@ -1315,14 +1402,25 @@ async function mountAccount(){
   $("#stVotes").textContent = votes.length; $("#stReqs").textContent = reqs.length;
   $("#stApproved").textContent = reqs.filter(r => r.status === "approved").length; $("#stPl").textContent = pl.value ? pl.value.length : 0;
   mr.innerHTML = reqs.length ? `<ul class="mini-list">${reqs.map(r => `<li><div class="mi"><span class="grow"><span class="nm">${esc(r.kind)}: ${esc(r.name || "Untitled")}</span><span class="sb">${dateFmt(r.created_at)}${r.admin_note ? ` · Admin note: ${esc(r.admin_note)}` : ""}</span></span>${statusBadge(r.status)}</div></li>`).join("")}</ul>` : `<p class="muted small">No requests yet.</p>`;
+  renderMyReports();
   $("#myVotes").innerHTML = votes.length ? `<ul class="mini-list">${votes.map(v => { const s = DB.songById[v.song]; return `<li><a href="#song-${esc(v.song)}"><span class="grow"><span class="nm">${esc(s ? s.name : "Deleted song")}</span><span class="sb">${dateFmt(v.created_at)}</span></span><b class="mono" style="color:${scoreColor(+v.score)}">${Math.round(+v.score)}</b></a></li>`; }).join("")}</ul>` : `<p class="muted small">You haven't voted yet. Open any song to rate it.</p>`;
+}
+
+async function renderMyReports(){
+  const el = $("#myReports"); if (!el) return;
+  let rows = [];
+  try { rows = (await run(sb.from("reports").select("*").eq("user_id", ME.user.id).order("created_at", {ascending:false}).limit(100))).data || []; }
+  catch(e){ el.innerHTML = `<p class="muted small">${missingRelation(e) ? "Reports aren't set up yet." : esc(e.message)}</p>`; return; }
+  el.innerHTML = rows.length ? `<ul class="mini-list">${rows.map(r => `<li><div class="mi"><span class="grow"><span class="nm">${reportTargetLink(r)} · ${esc(REASON_LABEL[r.reason] || r.reason)}</span><span class="sb">${dateFmt(r.created_at)}${r.admin_note ? ` · Admin note: ${esc(r.admin_note)}` : ""}</span></span>${statusBadge(r.status)}${r.status === "open" ? `<button class="btn ghost sm" type="button" data-wd="${r.id}" style="position:relative;z-index:1">Withdraw</button>` : ""}</div></li>`).join("")}</ul>`
+    : `<p class="muted small">No reports. Use “Report” on a song or level page if something's wrong.</p>`;
+  $$("[data-wd]", el).forEach(b => b.onclick = async () => { try { await run(sb.from("reports").delete().eq("id", b.dataset.wd)); toast("Report withdrawn"); renderMyReports(); } catch(e){ toast(e.message, true); } });
 }
 
 /* =====================================================================
    VIEW: SETTINGS
    ===================================================================== */
 const SETTINGS_TABS = [["profile","Profile",true],["account","Account & security",true],["playback","Playback",false],["display","Display",false],["data","Data & privacy",false]];
-const swRow = (key, title, desc) => `<div class="set-row"><div class="lbl"><b>${title}</b><span>${desc}</span></div><div class="ctl"><label class="switch"><input type="checkbox" data-pref="${key}" ${PREFS[key] ? "checked" : ""} aria-label="${esc(title)}"><span></span></label></div></div>`;
+const swRow = (key, title, desc) => `<div class="set-row"><div class="lbl"><b>${title}</b><span>${desc}</span></div><div class="ctl"><label class="switch"><input type="checkbox" data-pref="${key}" ${PREFS[key] ? "checked" : ""} aria-label="${esc(title.replace(/<[^>]*>/g, "").trim())}"><span></span></label></div></div>`;
 function viewSettings(tab){
   const t = SETTINGS_TABS.find(x => x[0] === tab) || SETTINGS_TABS[ME.user ? 0 : 2];
   return `<section class="hero single" style="margin-bottom:18px"><div><h1>Settings</h1><p class="lead">Manage your profile, account and how GDSR works for you.</p></div></section>
@@ -1369,7 +1467,11 @@ function settingsPanel(tab){
         ${swRow("visualizer", "Music visualizer", "Animated bars in the player and on song pages while music plays.")}
         ${swRow("compact", "Compact lists", "Shorter rows that hide the second line, so more songs fit on screen.")}
         ${swRow("reduceMotion", "Reduce motion", "Turn off animations and transitions.")}
-        ${swRow("showNoAudio", "Show songs without audio", "Include songs that have no audio file in lists.")}</div>`;
+        ${swRow("showNoAudio", "Show songs without audio", "Include songs that have no audio file in lists.")}
+        <div class="set-row"><div class="lbl"><b>Song pages show</b><span>When a song has both a YouTube video and audio. You can also switch on each song page.</span></div><div class="ctl"><select class="select" id="setMedia"><option value="video"${PREFS.songMedia !== "bars" ? " selected" : ""}>YouTube video</option><option value="bars"${PREFS.songMedia === "bars" ? " selected" : ""}>Music bars</option></select></div></div></div>
+      <div class="set-card"><header><h2>List indicators</h2><p>Small marks next to songs in lists. Only you see them, and only while signed in.</p></header>
+        ${swRow("markRated", `<span class="mk mk-r inline">${ICON.rated}</span> Rated`, "Show a check next to songs you've rated.")}
+        ${swRow("markFav", `<span class="mk mk-f inline">${ICON.heart}</span> Favourite part`, "Show a heart next to songs where you picked a favourite part.")}</div>`;
     case "data": {
       const local = PL.localAll().length;
       return `<div class="set-card"><header><h2>Your data</h2><p>Download what you've created on GDSR.</p></header>
@@ -1407,6 +1509,7 @@ function mountSettings(tab){
   const sr = $("#setRate"); if (sr) sr.addEventListener("input", () => { setRate(+sr.value); sr.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); $("#setRateOut").textContent = fmtRate(P.rate); });
   const kp = $('[data-pref="keepPitch"]'); if (kp) kp.addEventListener("change", applyRate);
   const vz = $('[data-pref="visualizer"]'); if (vz) vz.addEventListener("change", () => { if (vz.checked) initAudioGraph(); if (P.cur) renderPlayer(); });
+  const sm = $("#setMedia"); if (sm) sm.addEventListener("change", () => { setPref("songMedia", sm.value); toast("Saved"); });
   const rp = $("#setRepeat"); if (rp) rp.addEventListener("change", () => { P.repeat = rp.value; store.set("repeat", P.repeat); if (P.cur) renderPlayer(); toast("Saved"); });
   const ep = $("#expPl");
   if (ep) ep.onclick = async () => { try { const lists = await PL.list(); download(`gdsr-playlists-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({format:"gdsr-playlists", version:1, playlists:lists.map(p => ({name:p.name, songs:p.songs || []}))}, null, 2)); } catch(e){ toast(e.message, true); } };
@@ -1631,7 +1734,7 @@ async function mountPlaylist(id){
       ${missing ? `<div class="notice" style="margin-top:16px">${missing} song${missing === 1 ? " is" : "s are"} no longer on GDSR and ${missing === 1 ? "was" : "were"} hidden.</div>` : ""}
       <section class="section"><div class="table" id="pdList">${songs.length ? songs.map((s, i) => `<div class="row" data-song="${s.id}" style="grid-template-columns:30px 38px minmax(0,1fr) auto ${own ? "auto" : ""}">
           <span class="rank">${i + 1}</span>${playBtn(s)}
-          <span class="ttl"><a class="t" href="#song-${s.id}">${esc(s.name)}</a><span class="sub">${esc(s.author || "")} · ${esc(TYPE_LABEL[s.type] || "")} · ${esc(lenText(s.length))}</span></span>
+          <span class="ttl"><span class="tline"><a class="t" href="#song-${s.id}">${esc(s.name)}</a>${marks(s)}</span><span class="sub">${esc(s.author || "")} · ${esc(TYPE_LABEL[s.type] || "")} · ${esc(lenText(s.length))}</span></span>
           <span class="score" style="grid-template-columns:auto"><span class="num" style="color:${scoreColor(overall(s))}">${fmt(overall(s))}</span></span>
           ${own ? `<span class="btns" style="position:relative;z-index:1;flex-wrap:nowrap"><button class="ib" data-mv="${i}" data-dir="-1" type="button" aria-label="Move up" ${i === 0 ? "disabled" : ""}>${ICON.up}</button><button class="ib" data-mv="${i}" data-dir="1" type="button" aria-label="Move down" ${i === songs.length - 1 ? "disabled" : ""}>${ICON.down}</button><button class="ib" data-rm="${s.id}" type="button" aria-label="Remove from playlist">${ICON.x}</button></span>` : ""}
         </div>`).join("") : emptyState("This playlist is empty", "Open any song and press “Add to playlist”.")}</div></section>`;
@@ -1679,11 +1782,11 @@ const ADMIN_TABLES = {
     cols:["name","user_id","songs","is_public","created_at"]}
 };
 const ADMIN_NAV = [
-  ["Review", [["overview","Overview"],["level-requests","Level requests"],["song-requests","Song requests"]]],
+  ["Review", [["overview","Overview"],["reports","Reports"],["level-requests","Level requests"],["song-requests","Song requests"]]],
   ["Catalogue", [["levels","Levels"],["songs","Songs"],["song-ids","Song IDs"],["storage","Audio files"]]],
   ["Community", [["users","Users & roles"],["votes","Votes"],["song-b-votes","Song B votes"],["favourites","Favourite parts"],["playlists","Playlists"]]]
 ];
-const ADM = { users:null, pending:{level:0, song:0} };
+const ADM = { users:null, pending:{level:0, song:0, reports:0} };
 async function admUsers(force){
   if (ADM.users && !force) return ADM.users;
   const [p, r] = await Promise.all([run(sb.from("profiles").select("*").order("created_at", {ascending:false})), run(sb.from("user_roles").select("*"))]);
@@ -1694,8 +1797,10 @@ async function admUsers(force){
 const userName = id => { const u = (ADM.users || []).find(x => x.id === id); return u ? (u.username || u.email) : (id ? String(id).slice(0, 8) + "…" : "—"); };
 async function admPendingCounts(){
   const c = async t => { try { const r = await sb.from(t).select("id", {count:"exact", head:true}).eq("status", "pending"); return r.count || 0; } catch(_){ return 0; } };
-  const [l, s] = await Promise.all([c("level_requests"), c("song_requests")]);
-  ADM.pending = {level:l, song:s};
+  const cr = async () => { try { const r = await sb.from("reports").select("id", {count:"exact", head:true}).eq("status", "open"); return r.count || 0; } catch(_){ return 0; } };
+  const [l, s, rp] = await Promise.all([c("level_requests"), c("song_requests"), cr()]);
+  ADM.pending = {level:l, song:s, reports:rp};
+  const rc = $('.side a[href="#admin-reports"] .cnt'); if (rc){ rc.textContent = rp; rc.hidden = !rp; }
   const a = $('.side a[href="#admin-level-requests"] .cnt'), b = $('.side a[href="#admin-song-requests"] .cnt');
   if (a){ a.textContent = l; a.hidden = !l; } if (b){ b.textContent = s; b.hidden = !s; }
 }
@@ -1703,7 +1808,7 @@ function viewAdmin(section){
   if (!ME.user) return requireLogin("use the admin panel");
   if (!ME.isAdmin) return `<div class="card card-pad" style="max-width:520px;margin:30px auto;text-align:center"><h2>Admins only</h2><p class="muted">Your account doesn't have the admin role.</p><a class="btn" href="#list">Back to The List</a></div>`;
   return `<div class="admin">
-    <nav class="side" aria-label="Admin sections">${ADMIN_NAV.map(([h, items]) => `<h4>${h}</h4>${items.map(([k, l]) => `<a href="#admin-${k}" class="${section === k ? "active" : ""}">${l}${k.endsWith("requests") ? `<span class="cnt" hidden>0</span>` : ""}</a>`).join("")}`).join("")}</nav>
+    <nav class="side" aria-label="Admin sections">${ADMIN_NAV.map(([h, items]) => `<h4>${h}</h4>${items.map(([k, l]) => `<a href="#admin-${k}" class="${section === k ? "active" : ""}">${l}${k.endsWith("requests") || k === "reports" ? `<span class="cnt" hidden>0</span>` : ""}</a>`).join("")}`).join("")}</nav>
     <div id="admMain">${skeleton(5)}</div></div>`;
 }
 async function mountAdmin(section){
@@ -1712,6 +1817,7 @@ async function mountAdmin(section){
   const main = $("#admMain");
   try {
     if (section === "overview") await admOverview(main);
+    else if (section === "reports") await admReports(main);
     else if (section === "level-requests") await admRequests(main, "level");
     else if (section === "song-requests") await admRequests(main, "song");
     else if (section === "users") await admUsersView(main);
@@ -1730,6 +1836,7 @@ async function admOverview(main){
   const orphanIds = DB.songIds.filter(x => !DB.songs.some(s => +s.song_id === +x.song_id) && !DB.levels.some(l => +l.song_id === +x.song_id)).length;
   main.innerHTML = `<div class="section-head" style="margin-top:0"><div><h1 style="font-size:28px">Admin overview</h1><p class="muted">Signed in as ${esc(myName())}</p></div><button class="btn" id="admReload" type="button">Reload data</button></div>
     <div class="stats" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+      <a class="stat" href="#admin-reports" style="border-color:${ADM.pending.reports ? "rgba(240,113,113,.45)" : ""}"><b style="color:${ADM.pending.reports ? "#f07171" : ""}">${ADM.pending.reports}</b><span>Open reports</span></a>
       <a class="stat" href="#admin-level-requests" style="border-color:${ADM.pending.level ? "rgba(242,210,114,.4)" : ""}"><b style="color:${ADM.pending.level ? "#f2d272" : ""}">${ADM.pending.level}</b><span>Pending level requests</span></a>
       <a class="stat" href="#admin-song-requests" style="border-color:${ADM.pending.song ? "rgba(242,210,114,.4)" : ""}"><b style="color:${ADM.pending.song ? "#f2d272" : ""}">${ADM.pending.song}</b><span>Pending song requests</span></a>
       ${tables.map((t, i) => `<a class="stat" href="#admin-${t[2]}"><b>${counts[i] === "—" ? "—" : num(counts[i])}</b><span>${t[1]}</span></a>`).join("")}
@@ -1793,6 +1900,48 @@ async function admRequests(main, kind){
     if (rj) rj.onclick = () => review(false);
     if (ed) ed.onclick = () => admEditForm({title:`Edit ${kind} request`, fields, row:q, onSave:async data => { await run(sb.from(table).update(data).eq("id", id)); toast("Request updated"); admRequests(main, kind); }, folder:`${ME.user.id}/songs`});
     if (dl) dl.onclick = async () => { if (await confirmBox("Delete this request permanently?", {ok:"Delete", danger:true})){ try { await run(sb.from(table).delete().eq("id", id)); toast("Request deleted"); admRequests(main, kind); admPendingCounts(); } catch(e){ toast(e.message, true); } } };
+  });
+}
+
+/* ---------- reports ---------- */
+async function admReports(main){
+  await admUsers();
+  const st = state.repStatus || "open";
+  const r = await run(sb.from("reports").select("*").eq("status", st).order("created_at", {ascending:st === "open"}).limit(300));
+  const rows = r.data || [];
+  const openAll = st === "open" ? rows : ((await sb.from("reports").select("target_type,target_id").eq("status", "open")).data || []);
+  const sameCount = q => openAll.filter(x => x.target_type === q.target_type && x.target_id === q.target_id).length;
+  main.innerHTML = `<div class="section-head" style="margin-top:0"><div><h1 style="font-size:28px">Reports</h1><p class="muted">Problems users flagged on songs and levels.</p></div></div>
+    ${chips("repTabs", [["open","Open"],["resolved","Resolved"],["dismissed","Dismissed"]].map(([v, l]) => ({v, label:l})), st, "Report status")}
+    <div style="display:grid;gap:14px;margin-top:14px">${rows.length ? rows.map(q => { const n = sameCount(q), tgt = reportTarget(q.target_type, q.target_id);
+      return `<section class="card req-card" data-rep="${q.id}">
+        <div class="req-top"><div><h3 style="font-size:17px">${esc(REASON_LABEL[q.reason] || q.reason)}</h3><p class="muted small" style="margin:2px 0 0"><span class="pill">${q.target_type === "level" ? "Level" : "Song"}</span> ${reportTargetLink(q)} · reported by ${esc(userName(q.user_id))} · ${dateFmt(q.created_at)}${q.reviewed_by ? ` · reviewed by ${esc(userName(q.reviewed_by))}` : ""}</p></div>${statusBadge(q.status)}</div>
+        ${n > 1 ? `<div class="notice" style="margin:0">${n} open reports on this ${q.target_type}.</div>` : ""}
+        ${q.details ? `<blockquote class="rep-details">${esc(q.details)}</blockquote>` : `<p class="small faint" style="margin:0">No details given.</p>`}
+        ${q.admin_note && q.status !== "open" ? `<p class="small muted" style="margin:0">Note: ${esc(q.admin_note)}</p>` : ""}
+        ${q.status === "open" ? `<div class="form" style="gap:10px"><textarea class="textarea" data-note rows="2" placeholder="Note to the reporter (optional, shown on their account page)" style="min-height:60px"></textarea>
+          <div class="btns"><button class="btn primary sm" data-resolve type="button">Mark resolved</button><button class="btn sm" data-dismiss type="button">Dismiss</button>${tgt ? `<button class="btn sm" data-fix type="button">Edit ${q.target_type}</button>` : ""}<button class="btn ghost sm" data-del type="button">Delete</button></div></div>`
+          : `<div class="btns"><button class="btn ghost sm" data-reopen type="button">Reopen</button><button class="btn ghost sm" data-del type="button">Delete</button></div>`}
+      </section>`; }).join("") : `<div class="table">${emptyState(`No ${st} reports`, st === "open" ? "Nothing needs attention." : "")}</div>`}</div>`;
+  bindChips($("#repTabs"), v => { state.repStatus = v; admReports(main); });
+  $$("[data-rep]", main).forEach(card => {
+    const id = card.dataset.rep, q = rows.find(x => x.id === id), note = () => (($("[data-note]", card) || {}).value || "").trim() || null;
+    const setStatus = async status => {
+      $$("button", card).forEach(b => b.disabled = true);
+      try {
+        const upd = status === "open" ? {status, reviewed_by:null, reviewed_at:null} : {status, admin_note:note(), reviewed_by:ME.user.id, reviewed_at:new Date().toISOString()};
+        await run(sb.from("reports").update(upd).eq("id", id));
+        toast(status === "resolved" ? "Marked resolved" : status === "dismissed" ? "Dismissed" : "Reopened");
+        admReports(main); admPendingCounts();
+      } catch(e){ toast(/duplicate|unique/i.test(e.message) ? "That user already has another open report on this." : e.message, true); $$("button", card).forEach(b => b.disabled = false); }
+    };
+    const on = (sel, fn) => { const b = $(sel, card); if (b) b.onclick = fn; };
+    on("[data-resolve]", () => setStatus("resolved"));
+    on("[data-dismiss]", () => setStatus("dismissed"));
+    on("[data-reopen]", () => setStatus("open"));
+    on("[data-fix]", () => { const key = q.target_type === "level" ? "levels" : "songs", cfg = ADMIN_TABLES[key], row = reportTarget(q.target_type, q.target_id);
+      admEditForm({title:`Edit ${q.target_type}`, fields:cfg.fields, row, users:ADM.users, onSave:async data => { await ensureSongId(data, cfg.table); await run(sb.from(cfg.table).update(data).eq("id", row.id)); await loadData(); toast("Saved"); admReports(main); }}); });
+    on("[data-del]", async () => { if (await confirmBox("Delete this report permanently?", {ok:"Delete", danger:true})){ try { await run(sb.from("reports").delete().eq("id", id)); toast("Report deleted"); admReports(main); admPendingCounts(); } catch(e){ toast(e.message, true); } } });
   });
 }
 
