@@ -233,6 +233,11 @@ async function loadStats(){
   } catch (e){
     DB.statsSource = "stored";   // view not installed yet: fall back to the stored rating columns
   }
+  DB.statsB = {};
+  try {
+    const r = await run(sb.from("song_b_vote_stats").select("song,votes,avg_score"));
+    (r.data || []).forEach(x => DB.statsB[x.song] = {votes:+x.votes, avg:numOrNull(x.avg_score)});
+  } catch (_){}
 }
 
 /* ---------- Scoring ---------- */
@@ -247,20 +252,31 @@ function overall(s, depth = 0){
   if (s.type !== "mashup") return ownScore(s);
   const q = ownScore(s);
   const a = depth < 3 ? overall(DB.songById[s.song_a], depth + 1) : null;
-  const b = depth < 3 ? overall(DB.songById[s.song_b], depth + 1) : null;
+  const b = depth < 3 ? songBScore(s, depth) : null;
   const parts = [a, b, q].filter(v => v !== null);
   return parts.length ? parts.reduce((x, y) => x + y, 0) / parts.length : null;
 }
+/* Song B of a mashup is either a song on GDSR (song_b) or a typed-in song that isn't (song_b_name), rated on the mashup page */
+const hasExtB = s => s.type === "mashup" && !s.song_b && !!s.song_b_name;
+const voteCountB = s => (DB.statsB && DB.statsB[s.id] && DB.statsB[s.id].votes) || 0;
+function songBScore(s, depth = 0){
+  if (s.song_b) return overall(DB.songById[s.song_b], depth + 1);
+  if (!s.song_b_name) return null;
+  const st = DB.statsB && DB.statsB[s.id];
+  if (st && st.votes && st.avg !== null) return st.avg;
+  return numOrNull(s.song_b_rating);
+}
+const songBName = s => s.song_b ? ((DB.songById[s.song_b] || {}).name || "?") : (s.song_b_name || "?");
 const byScore = (a, b) => { const x = overall(a), y = overall(b); if (x === null && y === null) return a.name.localeCompare(b.name); if (x === null) return 1; if (y === null) return -1; return y - x; };
 const ranked = () => DB.songs.slice().sort(byScore);
 const songsFor = songId => DB.songs.filter(s => +s.song_id === +songId).sort(byScore);
 const levelsFor = songId => DB.levels.filter(l => +l.song_id === +songId);
 const originalFor = songId => DB.songs.find(s => +s.song_id === +songId && s.type === "original");
 function creditText(s){
-  if (s.type === "mashup"){ const a = DB.songById[s.song_a], b = DB.songById[s.song_b]; return [a ? a.name : "?", b ? b.name : "?"].join(" + "); }
+  if (s.type === "mashup"){ const a = DB.songById[s.song_a]; return [a ? a.name : "?", songBName(s)].join(" + "); }
   return TYPE_LABEL[s.type] || "Song";
 }
-const songHay = s => [s.name, s.author, s.type, s.song_id, creditText(s)].join(" ");
+const songHay = s => [s.name, s.author, s.type, s.song_id, creditText(s), s.song_b_author || ""].join(" ");
 
 /* ---------- Authors ---------- */
 const AUTHOR_SEP = /(\s*,\s*|\s*&\s*|\s+and\s+|\s+x\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+vs\.?\s+)/i;
@@ -286,6 +302,7 @@ function buildAuthors(){
   // mashups that use a song by this author
   DB.songs.filter(s => s.type === "mashup").forEach(m => [m.song_a, m.song_b].map(id => DB.songById[id]).filter(Boolean)
     .forEach(src => splitAuthors(src.author).forEach(n => { const a = AUTH.byKey[n.toLowerCase()]; if (a && !a.songs.includes(m) && !a.featured.includes(m)) a.featured.push(m); })));
+  DB.songs.filter(hasExtB).forEach(m => splitAuthors(m.song_b_author).forEach(n => { const a = get(n); if (!a.songs.includes(m) && !a.featured.includes(m)) a.featured.push(m); }));
 }
 const authorOf = name => AUTH.byKey[String(name || "").trim().toLowerCase()];
 function authorStats(a){
@@ -868,9 +885,13 @@ function breakdownCard(s){
     const a = DB.songById[s.song_a], b = DB.songById[s.song_b], q = ownScore(s);
     const item = (lbl, x) => { const sc = x ? overall(x) : null;
       return `<li><span><span class="lbl">${lbl}</span>${x ? `<a class="nm" href="#song-${x.id}">${esc(x.name)}</a><span class="small muted">${esc(x.author || "")}</span>` : `<span class="nm faint">Not set</span>`}</span><span class="val" style="color:${scoreColor(sc)}">${fmt(sc)}</span></li>`; };
-    return `<section class="card card-pad o-break"><h3>Score breakdown</h3><ul class="breakdown">${item("Song A", a)}${item("Song B", b)}
+    const bScore = songBScore(s);
+    const itemB = hasExtB(s)
+      ? `<li><span><span class="lbl">Song B · not on GDSR</span><span class="nm">${esc(s.song_b_name)}</span><span class="small muted">${s.song_b_author ? authorLinks(s.song_b_author, "", "alink") + " · " : ""}rated here · ${num(voteCountB(s))} vote${voteCountB(s) === 1 ? "" : "s"}</span></span><span class="val" style="color:${scoreColor(bScore)}">${fmt(bScore)}</span></li>`
+      : item("Song B", b);
+    return `<section class="card card-pad o-break"><h3>Score breakdown</h3><ul class="breakdown">${item("Song A", a)}${itemB}
       <li><span><span class="lbl">Mashing quality</span><span class="nm">${num(voteCount(s))} vote${voteCount(s) === 1 ? "" : "s"}</span></span><span class="val" style="color:${scoreColor(q)}">${fmt(q)}</span></li></ul>
-      <div class="formula">(${fmt(a ? overall(a) : null)} + ${fmt(b ? overall(b) : null)} + ${fmt(q)}) ÷ 3 = <b>${fmt(v)}</b></div></section>`;
+      <div class="formula">(${fmt(a ? overall(a) : null)} + ${fmt(bScore)} + ${fmt(q)}) ÷ 3 = <b>${fmt(v)}</b></div></section>`;
   }
   return `<section class="card card-pad o-break"><h3>Score breakdown</h3><ul class="breakdown"><li><span><span class="lbl">Community score</span><span class="nm">${num(voteCount(s))} vote${voteCount(s) === 1 ? "" : "s"}</span></span><span class="val" style="color:${scoreColor(v)}">${fmt(v)}</span></li></ul>
     <div class="formula">Average of all votes = <b>${fmt(v)}</b></div></section>`;
@@ -909,7 +930,7 @@ function viewSong(s){
           <dt>Song ID</dt><dd class="mono">${esc(s.song_id ?? "—")}</dd>
           <dt>Author</dt><dd>${authorLinks(s.author, "", "")}</dd>
           <dt>Type</dt><dd>${esc(TYPE_LABEL[s.type] || "—")}</dd>
-          ${s.type === "mashup" ? `<dt>Songs</dt><dd>${[s.song_a, s.song_b].map(id => DB.songById[id] ? `<a href="#song-${id}">${esc(DB.songById[id].name)}</a>` : "—").join(" + ")}</dd>` : ""}
+          ${s.type === "mashup" ? `<dt>Songs</dt><dd>${DB.songById[s.song_a] ? `<a href="#song-${s.song_a}">${esc(DB.songById[s.song_a].name)}</a>` : "—"} + ${s.song_b && DB.songById[s.song_b] ? `<a href="#song-${s.song_b}">${esc(DB.songById[s.song_b].name)}</a>` : esc(s.song_b_name || "—")}</dd>` : ""}
           <dt>Length</dt><dd class="mono">${esc(lenText(s.length))}</dd>
           <dt>Votes</dt><dd class="mono">${num(voteCount(s))}</dd>
           <dt>Added</dt><dd>${dateFmt(s.created_at)}</dd>
@@ -923,11 +944,12 @@ function viewSong(s){
 }
 
 /* rating card */
-const songCtx = { song:null, myVote:null, myFav:null, counts:[], len:180 };
+const songCtx = { song:null, myVote:null, myVoteB:null, myFav:null, counts:[], len:180 };
 function renderRateCard(){
   const s = songCtx.song, el = $("#rateCard"); if (!el || !s) return;
   const what = s.type === "mashup" ? "mashup" : s.type === "original" ? "song" : (TYPE_LABEL[s.type] || "song").toLowerCase();
   if (!ME.user){ el.innerHTML = `<h3>Rate this ${what}</h3><p class="muted small" style="margin:8px 0 14px">Sign in to vote. Every account gets one vote per song.</p><a class="btn primary" href="#login">Sign in to vote</a>`; return; }
+  if (hasExtB(s)) return renderRateCardExtB(s, el);
   const mine = songCtx.myVote, start = mine ? Math.round(+mine.score) : Math.round(ownScore(s) ?? 50);
   el.innerHTML = `<h3>Rate this ${what}</h3>
     ${s.type === "mashup" ? `<p class="small muted" style="margin:6px 0 0">Your vote rates the mashing quality. Song A and Song B are rated on their own pages.</p>` : ""}
@@ -949,6 +971,38 @@ function renderRateCard(){
   const rc = $("#rateClear");
   if (rc) rc.onclick = async () => { try { await run(sb.from("votes").delete().eq("id", songCtx.myVote.id)); await afterVoteChange(s); toast("Vote removed"); } catch(e){ toast(e.message, true); } };
 }
+function renderRateCardExtB(s, el){
+  const mq = songCtx.myVote, mb = songCtx.myVoteB, voted = mq || mb;
+  const sq = mq ? Math.round(+mq.score) : Math.round(ownScore(s) ?? 50), sbv = mb ? Math.round(+mb.score) : Math.round(songBScore(s) ?? 50);
+  const slider = (id, label, val) => `<div class="rate-row"><label for="${id}">${label}</label><output id="${id}Out" for="${id}" style="color:${scoreColor(val)}">${val}</output></div>
+    <input type="range" id="${id}" min="0" max="100" step="1" value="${val}" style="--p:${val}%">`;
+  el.innerHTML = `<h3>Rate this mashup</h3>
+    <p class="small muted" style="margin:6px 0 0">Song B isn't on GDSR, so you rate it here along with the mashing quality. Song A is rated on its own page.</p>
+    ${slider("rateB", `Song B: <b style="color:var(--text)">${esc(s.song_b_name)}</b>`, sbv)}
+    ${slider("rateIn", "Mashing quality", sq)}
+    <div class="btns"><button class="btn primary" id="rateSave" type="button">${voted ? "Update votes" : "Submit votes"}</button>${voted ? `<button class="btn ghost" id="rateClear" type="button">Remove</button>` : ""}</div>
+    ${voted ? `<p class="small muted" style="margin:10px 0 0">You voted${mb ? ` <b class="mono" style="color:var(--text)">${Math.round(+mb.score)}</b> for Song B` : ""}${mb && mq ? " and" : ""}${mq ? ` <b class="mono" style="color:var(--text)">${Math.round(+mq.score)}</b> for mashing quality` : ""}.</p>` : ""}`;
+  ["rateB", "rateIn"].forEach(id => { const r = $("#" + id), o = $("#" + id + "Out"); r.addEventListener("input", () => { o.textContent = r.value; o.style.color = scoreColor(+r.value); r.style.setProperty("--p", r.value + "%"); }); });
+  $("#rateSave").onclick = async () => {
+    const btn = $("#rateSave"); btn.disabled = true;
+    try {
+      const q = +$("#rateIn").value, b = +$("#rateB").value;
+      if (songCtx.myVoteB) await run(sb.from("song_b_votes").update({score:b}).eq("id", songCtx.myVoteB.id));
+      else await run(sb.from("song_b_votes").insert({user_id:ME.user.id, song:s.id, score:b}));
+      if (songCtx.myVote) await run(sb.from("votes").update({score:q}).eq("id", songCtx.myVote.id));
+      else await run(sb.from("votes").insert({user_id:ME.user.id, song:s.id, score:q}));
+      await afterVoteChange(s); toast(`Votes saved · score now ${fmt(overall(DB.songById[s.id]))}`);
+    } catch(e){ toast(e.message, true); btn.disabled = false; }
+  };
+  const rc = $("#rateClear");
+  if (rc) rc.onclick = async () => {
+    try {
+      if (songCtx.myVoteB) await run(sb.from("song_b_votes").delete().eq("id", songCtx.myVoteB.id));
+      if (songCtx.myVote) await run(sb.from("votes").delete().eq("id", songCtx.myVote.id));
+      await afterVoteChange(s); toast("Votes removed");
+    } catch(e){ toast(e.message, true); }
+  };
+}
 async function afterVoteChange(s){
   try { await sb.rpc("recalc_song", {_song:s.id}); } catch(_){}
   const [st, sg] = await Promise.all([loadStats(), sb.from("songs").select("*").eq("id", s.id).maybeSingle()]);
@@ -956,7 +1010,7 @@ async function afterVoteChange(s){
   render({keepScroll:true});
 }
 async function loadSongExtras(s){
-  songCtx.song = s; songCtx.myVote = null; songCtx.myFav = null; songCtx.counts = [];
+  songCtx.song = s; songCtx.myVote = null; songCtx.myVoteB = null; songCtx.myFav = null; songCtx.counts = [];
   const len = parseLen(s.length);
   const tasks = [
     sb.from("favourite_counts").select("time,quantity").eq("song", s.id).then(r => { if (r.error) throw r.error; songCtx.counts = r.data || []; })
@@ -964,6 +1018,7 @@ async function loadSongExtras(s){
   ];
   if (ME.user){
     tasks.push(sb.from("votes").select("id,score").eq("song", s.id).eq("user_id", ME.user.id).maybeSingle().then(r => { songCtx.myVote = r.data || null; }));
+    if (hasExtB(s)) tasks.push(sb.from("song_b_votes").select("id,score").eq("song", s.id).eq("user_id", ME.user.id).maybeSingle().then(r => { songCtx.myVoteB = r.data || null; }));
     tasks.push(sb.from("favourite_parts").select("id,time").eq("song", s.id).eq("user_id", ME.user.id).maybeSingle().then(r => { songCtx.myFav = r.data || null; }));
   }
   await Promise.allSettled(tasks);
@@ -1382,7 +1437,7 @@ const SONG_FIELDS = [
   {k:"length", label:"Length", type:"text", hint:"m:ss, e.g. 3:06"},
   {k:"video", label:"Video", type:"url", hint:"YouTube link"},
   {k:"song_a", label:"Song A", type:"song", showIf:v => v.type === "mashup"},
-  {k:"song_b", label:"Song B", type:"song", showIf:v => v.type === "mashup"},
+  {k:"song_b", label:"Song B", type:"songb", showIf:v => v.type === "mashup"},
   {k:"audio_file", label:"Audio file", type:"audio"}
 ];
 function fieldHtml(f, val, ctx = {}){
@@ -1397,6 +1452,22 @@ function fieldHtml(f, val, ctx = {}){
       return wrap(`<input class="input mono" type="number" id="${id}" name="${f.k}" value="${esc(v)}" min="1" step="1" list="songIdList" ${f.req ? "required" : ""}><datalist id="songIdList">${DB.songIds.map(x => `<option value="${x.song_id}">`).join("")}</datalist>`);
     case "song":
       return wrap(`<select class="select" id="${id}" name="${f.k}"><option value="">— none —</option>${DB.songs.slice().sort((a, b) => a.name.localeCompare(b.name)).filter(s => s.id !== ctx.selfId).map(s => `<option value="${s.id}"${s.id === v ? " selected" : ""}>${esc(s.name)} · ${esc(s.author || "")} (${esc(TYPE_LABEL[s.type] || "")})</option>`).join("")}</select>`);
+    case "songb": {
+      const row = ctx.row || {}, ext = row.song_b ? false : true;
+      return `<div class="f sb-field" data-field="${f.k}" data-songb>
+        <span class="sb-label">${esc(f.label)}</span>
+        <div class="seg" role="radiogroup" aria-label="Where is Song B?">
+          <label><input type="radio" name="song_b_mode" value="ext" ${ext ? "checked" : ""}><span>Not on GDSR · type it</span></label>
+          <label><input type="radio" name="song_b_mode" value="site" ${ext ? "" : "checked"}><span>On GDSR · choose it</span></label>
+        </div>
+        <div class="sb-ext row2">
+          <label class="f">Song name <span class="req">*</span><input class="input" name="song_b_name" value="${esc(row.song_b_name || "")}" maxlength="120" placeholder="e.g. Tunak Tunak Tun"></label>
+          <label class="f">Original artist<input class="input" name="song_b_author" value="${esc(row.song_b_author || "")}" maxlength="120" placeholder="Optional"></label>
+          <span class="hint" style="grid-column:1/-1">People rate this song on the mashup's page.</span>
+        </div>
+        <div class="sb-site"><select class="select" id="${id}" name="${f.k}"><option value="">Choose a song…</option>${DB.songs.slice().sort((a, b) => a.name.localeCompare(b.name)).filter(x => x.id !== ctx.selfId).map(x => `<option value="${x.id}"${x.id === v ? " selected" : ""}>${esc(x.name)} · ${esc(x.author || "")} (${esc(TYPE_LABEL[x.type] || "")})</option>`).join("")}</select></div>
+      </div>`;
+    }
     case "user":
       return wrap(`<select class="select" id="${id}" name="${f.k}" ${f.req ? "required" : ""}><option value="">—</option>${(ctx.users || []).map(u => `<option value="${u.id}"${u.id === v ? " selected" : ""}>${esc(u.username || u.email || u.id)}</option>`).join("")}</select>`);
     case "bool":
@@ -1420,6 +1491,7 @@ function fieldHtml(f, val, ctx = {}){
 function applyShowIf(form, fields){
   const vals = Object.fromEntries(new FormData(form));
   fields.forEach(f => { if (!f.showIf) return; const el = $(`[data-field="${f.k}"]`, form); if (el) el.style.display = f.showIf(vals) ? "" : "none"; });
+  $$("[data-songb]", form).forEach(box => { const ext = (vals.song_b_mode || "ext") === "ext"; $(".sb-ext", box).hidden = !ext; $(".sb-site", box).hidden = ext; });
 }
 function bindAudioUpload(form, fields, folder){
   fields.filter(f => f.type === "audio").forEach(f => {
@@ -1449,7 +1521,16 @@ function readForm(form, fields){
   const fd = new FormData(form), out = {};
   for (const f of fields){
     if (f.type === "ro") continue;
-    const el = $(`[data-field="${f.k}"]`, form); if (el && el.style.display === "none"){ out[f.k] = null; continue; }
+    const el = $(`[data-field="${f.k}"]`, form);
+    if (f.type === "songb"){
+      if (el && el.style.display === "none"){ out.song_b = null; out.song_b_name = null; out.song_b_author = null; continue; }
+      const ext = (fd.get("song_b_mode") || "ext") === "ext";
+      out.song_b = ext ? null : (String(fd.get("song_b") || "").trim() || null);
+      out.song_b_name = ext ? (String(fd.get("song_b_name") || "").trim() || null) : null;
+      out.song_b_author = ext ? (String(fd.get("song_b_author") || "").trim() || null) : null;
+      continue;
+    }
+    if (el && el.style.display === "none"){ out[f.k] = null; continue; }
     let v = f.type === "bool" ? fd.has(f.k) : fd.get(f.k);
     if (f.type === "bool"){ out[f.k] = v; continue; }
     v = v === null ? "" : String(v).trim();
@@ -1488,7 +1569,8 @@ function mountRequest(kind){
     if (form.dataset.uploading){ toast("Wait for the audio upload to finish.", true); return; }
     try {
       const data = readForm(form, fields);
-      if (kind === "song" && data.type === "mashup" && (!data.song_a || !data.song_b)) throw new Error("A mashup needs both Song A and Song B.");
+      if (kind === "song" && data.type === "mashup" && !data.song_a) throw new Error("Choose Song A for the mashup.");
+      if (kind === "song" && data.type === "mashup" && !data.song_b && !data.song_b_name) throw new Error("Add Song B: type its name, or choose it if it's on GDSR.");
       if (kind === "song" && data.song_a && data.song_a === data.song_b) throw new Error("Song A and Song B must be different songs.");
       await run(sb.from(kind === "song" ? "song_requests" : "level_requests").insert({...data, user_id:ME.user.id, status:"pending"}));
       form.reset(); applyShowIf(form, fields);
@@ -1581,7 +1663,10 @@ const ADMIN_TABLES = {
   songs:{table:"songs", title:"Songs", pk:"id", order:"created_at",
     fields:[...SONG_FIELDS, {k:"rating", label:"Rating (0–100)", type:"numeric", min:0, max:100, hint:"Used when there are no votes yet", showIf:v => v.type !== "mashup"},
       {k:"mashing_quality", label:"Mashing quality (0–100)", type:"numeric", min:0, max:100, hint:"Used when there are no votes yet", showIf:v => v.type === "mashup"}],
-    cols:["name","type","author","song_id","length","rating","mashing_quality","audio_file"], link:r => `#song-${r.id}`},
+    cols:["name","type","author","song_id","length","rating","mashing_quality","song_b_name","audio_file"], link:r => `#song-${r.id}`},
+  "song-b-votes":{table:"song_b_votes", title:"Song B votes", pk:"id", order:"created_at", needsUsers:true,
+    fields:[{k:"user_id", label:"User", type:"user", req:true},{k:"song", label:"Mashup", type:"song"},{k:"score", label:"Score", type:"numeric", min:0, max:100, req:true}],
+    cols:["user_id","song","score","created_at"]},
   "song-ids":{table:"song_ids", title:"Song IDs", pk:"song_id", order:"song_id", fields:[{k:"song_id", label:"Song ID", type:"int", req:true, min:1}], cols:["song_id"], noEdit:true},
   votes:{table:"votes", title:"Votes", pk:"id", order:"created_at", needsUsers:true,
     fields:[{k:"user_id", label:"User", type:"user", req:true},{k:"song", label:"Song", type:"song"},{k:"score", label:"Score", type:"numeric", min:0, max:100, req:true}],
@@ -1596,7 +1681,7 @@ const ADMIN_TABLES = {
 const ADMIN_NAV = [
   ["Review", [["overview","Overview"],["level-requests","Level requests"],["song-requests","Song requests"]]],
   ["Catalogue", [["levels","Levels"],["songs","Songs"],["song-ids","Song IDs"],["storage","Audio files"]]],
-  ["Community", [["users","Users & roles"],["votes","Votes"],["favourites","Favourite parts"],["playlists","Playlists"]]]
+  ["Community", [["users","Users & roles"],["votes","Votes"],["song-b-votes","Song B votes"],["favourites","Favourite parts"],["playlists","Playlists"]]]
 ];
 const ADM = { users:null, pending:{level:0, song:0} };
 async function admUsers(force){
@@ -1666,7 +1751,9 @@ async function admRequests(main, kind){
   await admUsers();
   const r = await run(sb.from(table).select("*").eq("status", state.reqStatus).order("created_at", {ascending:state.reqStatus === "pending"}).limit(200));
   const rows = r.data || [];
-  const val = (f, v) => {
+  const val = (f, v, q) => {
+    if (f.type === "songb") return q.song_b ? (DB.songById[q.song_b] ? `<a class="link" href="#song-${q.song_b}">${esc(DB.songById[q.song_b].name)}</a>` : `<span class="mono">${esc(q.song_b)}</span>`)
+      : q.song_b_name ? `${esc(q.song_b_name)}${q.song_b_author ? ` · ${esc(q.song_b_author)}` : ""} <span class="faint">(not on GDSR)</span>` : '<span class="faint">—</span>';
     if (v === null || v === undefined || v === "") return '<span class="faint">—</span>';
     if (f.type === "song") return DB.songById[v] ? `<a class="link" href="#song-${v}">${esc(DB.songById[v].name)}</a>` : `<span class="mono">${esc(v)}</span>`;
     if (f.type === "audio") return `<audio controls preload="none" data-audio="${esc((v))}" style="height:32px;max-width:100%"></audio>`;
@@ -1681,7 +1768,7 @@ async function admRequests(main, kind){
       return `<section class="card req-card" data-req="${q.id}">
         <div class="req-top"><div><h3 style="font-size:17px">${esc(q.name || "Untitled")}</h3><p class="muted small" style="margin:2px 0 0">by ${esc(userName(q.user_id))} · ${dateFmt(q.created_at)}${q.reviewed_by ? ` · reviewed by ${esc(userName(q.reviewed_by))}` : ""}</p></div>${statusBadge(q.status)}</div>
         ${dupe ? `<div class="notice" style="margin:0">Possible duplicate of <a class="link" href="#${kind === "level" ? "level" : "song"}-${dupe.id}">${esc(dupe.name)}</a>.</div>` : ""}
-        <div class="kv">${fields.filter(f => kind !== "song" || !f.showIf || f.showIf(q)).map(f => `<div><small>${esc(f.label)}</small><span>${val(f, q[f.k])}</span></div>`).join("")}</div>
+        <div class="kv">${fields.filter(f => kind !== "song" || !f.showIf || f.showIf(q)).map(f => `<div><small>${esc(f.label)}</small><span>${val(f, q[f.k], q)}</span></div>`).join("")}</div>
         ${q.admin_note && q.status !== "pending" ? `<p class="small muted" style="margin:0">Note: ${esc(q.admin_note)}</p>` : ""}
         ${q.status === "pending" ? `<div class="form" style="gap:10px"><textarea class="textarea" data-note rows="2" placeholder="Note to the requester (optional, shown on their account page)" style="min-height:60px"></textarea>
           <div class="btns"><button class="btn primary sm" data-approve type="button">Approve</button><button class="btn danger sm" data-reject type="button">Reject</button><button class="btn sm" data-edit type="button">Edit first</button><button class="btn ghost sm" data-del type="button">Delete</button></div></div>`
@@ -1714,7 +1801,7 @@ function admEditForm({title, fields, row, onSave, folder, users}){
   folder = folder || `${ME.user.id}/songs`;
   const isNew = !row;
   const bg = openModal({title, wide:true,
-    body:`<form class="form" id="admForm" novalidate><div class="row2" style="align-items:start">${fields.map(f => fieldHtml(f, row ? row[f.k] : (f.type === "enum" && f.k === "type" ? "original" : undefined), {admin:true, users, selfId:row && row.id})).join("")}</div><p class="msg" id="admMsg" hidden></p></form>`,
+    body:`<form class="form" id="admForm" novalidate><div class="row2" style="align-items:start">${fields.map(f => fieldHtml(f, row ? row[f.k] : (f.type === "enum" && f.k === "type" ? "original" : undefined), {admin:true, users, selfId:row && row.id, row})).join("")}</div><p class="msg" id="admMsg" hidden></p></form>`,
     foot:`<button class="btn ghost" data-close type="button">Cancel</button><button class="btn primary" id="admSave" type="button">${isNew ? "Add" : "Save changes"}</button>`});
   const form = $("#admForm", bg), msg = $("#admMsg", bg);
   applyShowIf(form, fields); form.addEventListener("change", () => applyShowIf(form, fields));
@@ -1725,6 +1812,7 @@ function admEditForm({title, fields, row, onSave, folder, users}){
     try {
       const data = readForm(form, fields);
       if (data.type === "mashup" && data.song_a && data.song_a === data.song_b) throw new Error("Song A and Song B must be different songs.");
+      if (data.type === "mashup" && "song_b_name" in data && !data.song_b && !data.song_b_name) throw new Error("Add Song B: type its name, or choose it if it's on GDSR.");
       await onSave(data); closeModal();
     } catch(e){ msg.hidden = false; msg.textContent = e.message; btn.disabled = false; }
   };
@@ -1805,7 +1893,7 @@ async function importCSV(file, cfg, after){
   let rows;
   try { rows = parseCSV(await readFile(file)); } catch(e){ toast("Couldn't read that file.", true); return; }
   if (!rows.length){ toast("The file has no rows.", true); return; }
-  const allowed = new Set([cfg.pk, ...cfg.fields.map(f => f.k)]);
+  const allowed = new Set([cfg.pk, ...cfg.fields.map(f => f.k), ...(cfg.table === "songs" ? ["song_b_name", "song_b_author"] : [])]);
   const ftype = Object.fromEntries(cfg.fields.map(f => [f.k, f.type]));
   const clean = rows.map(r => { const o = {}; for (const [k, v] of Object.entries(r)){ if (!allowed.has(k)) continue;
       if (v === ""){ o[k] = null; continue; }

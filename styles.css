@@ -471,3 +471,14 @@ a.alink:hover,a.plalink:hover{color:var(--accent-strong);text-decoration-color:c
 .a-top h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .a-top .grow{min-width:0}
 .avatar-md{width:42px;height:42px;flex:none;border-radius:50%;background:var(--accent-soft);color:var(--accent-strong);display:grid;place-items:center;font-weight:800;font-size:17px;border:1px solid var(--accent-line)}
+
+/* ---------- Song B (on GDSR or typed in) ---------- */
+.sb-field{display:grid;gap:10px;grid-column:1 / -1}
+.sb-label{font-size:13px;color:var(--muted);font-weight:500}
+.seg{display:flex;gap:4px;padding:4px;background:var(--bg2);border:1px solid var(--border);border-radius:11px;flex-wrap:wrap}
+.seg label{flex:1 1 160px;position:relative;cursor:pointer}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:block;text-align:center;padding:8px 10px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg input:checked + span{background:var(--surface2);color:var(--accent-strong);box-shadow:inset 0 0 0 1px var(--accent-line)}
+.seg input:focus-visible + span{outline:2px solid var(--accent);outline-offset:1px}
+.sb-ext[hidden],.sb-site[hidden]{display:none}
