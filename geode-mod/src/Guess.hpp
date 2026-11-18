@@ -10,8 +10,9 @@ namespace gdsr {
         { "hard", "Hard", 2.f, 2.f },
         { "insane", "Insane", 1.f, 3.f },
         { "extreme", "Extreme", .5f, 4.f },
+        { "extremeplus", "Extreme+", .2f, 5.f },
     };
-    inline constexpr int GUESS_LEVEL_COUNT = 5;
+    inline constexpr int GUESS_LEVEL_COUNT = 6;
 
     struct GuessConfig {
         std::vector<std::string> types;   // song types that can come up

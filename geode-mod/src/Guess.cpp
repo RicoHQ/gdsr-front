@@ -66,7 +66,7 @@ std::vector<Song const*> guessPool(GuessConfig const& cfg) {
 }
 
 std::string clipText(float seconds) {
-    if (seconds < 1.f) return fmt::format("{}ms", static_cast<int>(seconds * 1000));
+    if (seconds < 1.f) return fmt::format("{}ms", static_cast<int>(std::lround(seconds * 1000)));
     return fmt::format("{}s", static_cast<int>(seconds));
 }
 

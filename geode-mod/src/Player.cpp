@@ -34,7 +34,7 @@ Result<> Player::play(std::filesystem::path const& file, std::string id, std::st
     auto system = fmodSystem();
     if (!system) return Err("The game's audio engine isn't ready.");
     auto data = file::readBinary(file);
-    if (!data) return Err("Couldn't read the audio file.");
+    if (!data) { log::warn("GDSR player: can't read {}", file.string()); return Err("Couldn't read the audio file."); }
 
     freeSound();
     m_data = std::move(data).unwrap();
@@ -42,14 +42,14 @@ Result<> Player::play(std::filesystem::path const& file, std::string id, std::st
     ex.cbsize = sizeof(ex);
     ex.length = static_cast<unsigned int>(m_data.size());
     auto r = system->createSound(reinterpret_cast<char const*>(m_data.data()), FMOD_OPENMEMORY_POINT | FMOD_CREATESTREAM | FMOD_2D, &ex, &m_sound);
-    if (r != FMOD_OK || !m_sound) { m_sound = nullptr; m_data.clear(); return Err("This audio format can't be played."); }
+    if (r != FMOD_OK || !m_sound) { log::warn("GDSR player: createSound failed ({})", static_cast<int>(r)); m_sound = nullptr; m_data.clear(); return Err(fmt::format("This audio can't be played (FMOD error {}).", static_cast<int>(r))); }
 
     m_lengthMs = 0;
     m_sound->getLength(&m_lengthMs, FMOD_TIMEUNIT_MS);
     if (m_lengthMs && startMs >= m_lengthMs) startMs = 0;
 
     r = system->playSound(m_sound, nullptr, true, &m_channel);
-    if (r != FMOD_OK || !m_channel) { freeSound(); return Err("Couldn't start playback."); }
+    if (r != FMOD_OK || !m_channel) { log::warn("GDSR player: playSound failed ({})", static_cast<int>(r)); freeSound(); return Err(fmt::format("Couldn't start playback (FMOD error {}).", static_cast<int>(r))); }
     m_channel->setVolume(playerVolume());
     if (startMs) m_channel->setPosition(startMs, FMOD_TIMEUNIT_MS);
     m_channel->setPaused(false);
@@ -66,7 +66,7 @@ Result<> Player::play(std::filesystem::path const& file, std::string id, std::st
         }
     }
     if (!m_scheduled) {
-        CCDirector::sharedDirector()->getScheduler()->scheduleSelector(schedule_selector(Player::tick), this, .05f, false);
+        CCDirector::sharedDirector()->getScheduler()->scheduleSelector(schedule_selector(Player::tick), this, 0.f, false);
         m_scheduled = true;
     }
     notify();
