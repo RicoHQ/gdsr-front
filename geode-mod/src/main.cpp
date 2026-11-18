@@ -26,11 +26,11 @@ class $modify(GDSRLevelInfoLayer, LevelInfoLayer) {
         } else {
             // without Node IDs: our own small menu on the left edge
             auto winSize = CCDirector::get()->getWinSize();
-            auto menu = CCMenu::create();
-            menu->setID("gdsr-menu"_spr);
-            menu->setPosition({ 30.f, winSize.height / 2 - 40.f });
-            menu->addChild(btn);
-            this->addChild(menu, 10);
+            auto ownMenu = CCMenu::create();
+            ownMenu->setID("gdsr-menu"_spr);
+            ownMenu->setPosition({ 30.f, winSize.height / 2 - 40.f });
+            ownMenu->addChild(btn);
+            this->addChild(ownMenu, 10);
         }
         return true;
     }
