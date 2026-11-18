@@ -195,9 +195,9 @@ const ICON = {
 /* =====================================================================
    STATE & DATA
    ===================================================================== */
-const TYPES = ["original","mashup","cover","remix"];
-const TYPE_LABEL = {original:"Original", mashup:"Mashup", cover:"Cover", remix:"Remix"};
-const PLURAL = {mashup:"Mashups", cover:"Covers", remix:"Remixes", original:"Originals"};
+const TYPES = ["original","mashup","cover","remix","nong"];
+const TYPE_LABEL = {original:"Original", mashup:"Mashup", cover:"Cover", remix:"Remix", nong:"NONG"};
+const PLURAL = {mashup:"Mashups", cover:"Covers", remix:"Remixes", original:"Originals", nong:"NONGs"};
 const DIFF = {"Auto":"#9fb3a8","Easy":"#5ec8f0","Normal":"#5fd36b","Hard":"#f0c64a","Harder":"#f08a4a","Insane":"#ec6fc9","Easy Demon":"#c58cf2","Medium Demon":"#e97a9a","Hard Demon":"#ef6a6a","Insane Demon":"#f2544e","Extreme Demon":"#ff3434"};
 const DIFF_ORDER = Object.keys(DIFF);
 
@@ -762,7 +762,7 @@ function viewList(){
   return `${dataNotice()}
   <section class="hero">
     <div><h1>The List</h1>
-      <p class="lead">Every mashup, cover and remix, ranked by community score from 0 to 100.</p></div>
+      <p class="lead">Every mashup, cover, remix and NONG, ranked by community score from 0 to 100.</p></div>
     <div class="stats">
       <div class="stat"><b>${DB.songs.length}</b><span>Songs</span></div>
       <div class="stat"><b>${DB.songs.filter(s => s.type === "mashup").length}</b><span>Mashups</span></div>
@@ -2160,12 +2160,181 @@ async function admStorage(main){
 }
 
 /* =====================================================================
+   VIEW: GUESS THE SONG (mini game)
+   ===================================================================== */
+const GUESS_LEVELS = [
+  {k:"easy",    label:"Easy",    clip:8,   mult:1},
+  {k:"normal",  label:"Normal",  clip:4,   mult:1.5},
+  {k:"hard",    label:"Hard",    clip:2,   mult:2},
+  {k:"insane",  label:"Insane",  clip:1,   mult:3},
+  {k:"extreme", label:"Extreme", clip:0.5, mult:4}
+];
+const GUESS_DEFAULT = {types:TYPES.slice(), start:"start", diffs:[], level:"normal", rounds:10};
+const G = { cfg:Object.assign({}, GUESS_DEFAULT, store.get("guessCfg", {})), audio:new Audio(), phase:"setup", rounds:[], i:0, score:0, streak:0, best:0, stopT:0, token:0 };
+G.audio.preload = "auto"; G.audio.crossOrigin = "anonymous";
+const guessLevel = () => GUESS_LEVELS.find(l => l.k === G.cfg.level) || GUESS_LEVELS[1];
+function guessPool(cfg = G.cfg){
+  let ids = null;
+  if (cfg.diffs.length){ ids = new Set(DB.levels.filter(l => cfg.diffs.includes(l.difficulty) && l.song_id).map(l => +l.song_id)); }
+  return DB.songs.filter(s => s.audio_file && cfg.types.includes(s.type) && (!ids || ids.has(+s.song_id)));
+}
+const guessBestKey = () => `guessBest-${G.cfg.level}-${G.cfg.start}`;
+function guessStop(){ clearTimeout(G.stopT); G.token++; try { G.audio.pause(); } catch(_){} cancelAnimationFrame(G.raf); }
+
+function viewGuess(){
+  return `${dataNotice()}<section class="hero single"><div><p class="eyebrow">Mini game</p><h1>Guess the Song</h1>
+    <p class="lead">Hear a short clip and pick the right song. Shorter clips score more.</p></div></section>
+    <div id="guessBox"></div>`;
+}
+function mountGuess(){ if (P.cur && !P.audio.paused) P.audio.pause(); G.phase === "play" ? renderGuessRound() : G.phase === "done" ? renderGuessDone() : renderGuessSetup(); }
+
+function renderGuessSetup(){
+  G.phase = "setup"; guessStop();
+  const box = $("#guessBox"); if (!box) return;
+  const c = G.cfg, usedDiffs = DIFF_ORDER.filter(d => DB.levels.some(l => l.difficulty === d && l.song_id));
+  const chip = (group, v, label, on) => `<button class="chip" type="button" data-g="${group}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)}</button>`;
+  box.innerHTML = `<div class="card guess-setup">
+    <div class="g-row"><div class="g-lab"><b>Song types</b><span>Which kinds of songs can come up.</span></div>
+      <div class="chips wrap">${TYPES.map(t => chip("type", t, PLURAL[t], c.types.includes(t))).join("")}</div></div>
+    <div class="g-row"><div class="g-lab"><b>Clip starts</b><span>From the very beginning, or anywhere in the song.</span></div>
+      <div class="seg seg-sm" role="radiogroup" aria-label="Clip starts">
+        <label><input type="radio" name="gStart" value="start"${c.start === "start" ? " checked" : ""}><span>From the start</span></label>
+        <label><input type="radio" name="gStart" value="random"${c.start === "random" ? " checked" : ""}><span>Random part</span></label></div></div>
+    <div class="g-row"><div class="g-lab"><b>Level difficulty</b><span>Only songs used by levels of these difficulties. None picked means any song.</span></div>
+      <div class="chips wrap">${chip("diff", "", "Any", !c.diffs.length)}${usedDiffs.map(d => chip("diff", d, d, c.diffs.includes(d))).join("")}</div></div>
+    <div class="g-row"><div class="g-lab"><b>Game difficulty</b><span>Sets how long each clip is.</span></div>
+      <div class="g-levels">${GUESS_LEVELS.map(l => `<button type="button" class="g-level" data-level="${l.k}" aria-pressed="${l.k === c.level}"><b>${l.label}</b><span class="mono">${l.clip < 1 ? l.clip * 1000 + " ms" : l.clip + " s"}</span><small>×${l.mult} points</small></button>`).join("")}</div></div>
+    <div class="g-row"><div class="g-lab"><b>Rounds</b></div>
+      <div class="chips">${[5, 10, 15, 20].map(n => chip("rounds", n, n, c.rounds === n)).join("")}</div></div>
+    <div class="g-start"><span class="muted small" id="gPool"></span><button class="btn primary lg" type="button" id="gGo">${ICON.play} Start game</button></div>
+  </div>`;
+  const upd = () => {
+    const n = guessPool().length, best = store.get(guessBestKey(), 0);
+    $("#gPool").innerHTML = `<b style="color:var(--text)">${n}</b> song${n === 1 ? "" : "s"} match${best ? ` · Best at this setting: <b class="mono" style="color:var(--accent-strong)">${best}</b>` : ""}`;
+    $("#gGo").disabled = n < 2;
+    if (n < 2) $("#gPool").innerHTML += ` · <span style="color:var(--danger,#ef6a6a)">Need at least 2 songs. Loosen the filters.</span>`;
+    store.set("guessCfg", G.cfg);
+  };
+  box.addEventListener("click", e => {
+    const b = e.target.closest("[data-g]"), lv = e.target.closest("[data-level]");
+    if (lv){ c.level = lv.dataset.level; $$("[data-level]", box).forEach(x => x.setAttribute("aria-pressed", String(x === lv))); upd(); return; }
+    if (!b) return;
+    const g = b.dataset.g, v = b.dataset.v;
+    if (g === "type"){ c.types = c.types.includes(v) ? c.types.filter(x => x !== v) : [...c.types, v]; if (!c.types.length) c.types = [v]; }
+    if (g === "diff"){ c.diffs = !v ? [] : c.diffs.includes(v) ? c.diffs.filter(x => x !== v) : [...c.diffs, v]; }
+    if (g === "rounds") c.rounds = +v;
+    $$(`[data-g="${g}"]`, box).forEach(x => x.setAttribute("aria-pressed", String(
+      g === "type" ? c.types.includes(x.dataset.v) : g === "diff" ? (x.dataset.v ? c.diffs.includes(x.dataset.v) : !c.diffs.length) : +x.dataset.v === c.rounds)));
+    upd();
+  });
+  $$('input[name="gStart"]', box).forEach(r => r.addEventListener("change", () => { c.start = r.value; upd(); }));
+  $("#gGo").addEventListener("click", startGuess);
+  upd();
+}
+
+function startGuess(){
+  const pool = shuffleArr(guessPool()); if (pool.length < 2) return;
+  const all = DB.songs.filter(s => s.audio_file);
+  G.rounds = pool.slice(0, Math.min(G.cfg.rounds, pool.length)).map(s => {
+    const others = shuffleArr(pool.filter(x => x.id !== s.id)), extra = shuffleArr(all.filter(x => x.id !== s.id && !others.includes(x)));
+    const choices = shuffleArr([s, ...[...others, ...extra].slice(0, 3)]);
+    return {id:s.id, choices:choices.map(x => x.id), start:null, plays:0, pick:null, pts:0};
+  });
+  Object.assign(G, {phase:"play", i:0, score:0, streak:0, best:0});
+  renderGuessRound();
+}
+
+function renderGuessRound(){
+  const box = $("#guessBox"); if (!box) return;
+  const r = G.rounds[G.i], lvl = guessLevel(), done = r.pick !== null;
+  box.innerHTML = `<div class="card guess-play">
+    <div class="g-hud"><span>Round <b>${G.i + 1}</b>/${G.rounds.length}</span><span>Score <b class="mono" id="gScore">${G.score}</b></span><span>Streak <b>${G.streak}</b></span><span class="pill">${lvl.label} · ${lvl.clip < 1 ? lvl.clip * 1000 + "ms" : lvl.clip + "s"}</span></div>
+    <div class="g-stage">
+      <button class="g-play" type="button" id="gPlay" aria-label="Play clip">${ICON.play}<svg class="g-ring" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/><circle id="gRing" cx="60" cy="60" r="54"/></svg></button>
+      <p class="muted small" id="gHint">${done ? "" : r.plays ? `Played ${r.plays}× · ${3 - r.plays} replay${3 - r.plays === 1 ? "" : "s"} left` : "Press play (or Space) to hear the clip"}</p>
+    </div>
+    <div class="g-choices">${r.choices.map((id, n) => { const s = DB.songById[id];
+      const cls = done ? (id === r.id ? " right" : id === r.pick ? " wrong" : " dim") : "";
+      return `<button type="button" class="g-choice${cls}" data-id="${id}"${done ? " disabled" : ""}><kbd>${n + 1}</kbd><span><b>${esc(s.name)}</b><small>${esc(s.author || "")} · ${esc(TYPE_LABEL[s.type] || "")}</small></span></button>`; }).join("")}</div>
+    <div class="g-foot">${done
+      ? `<span class="g-result ${r.pick === r.id ? "ok" : "bad"}">${r.pick === r.id ? `Correct! +${r.pts}` : r.pick === "skip" ? "Skipped" : "Not quite"} · <a href="#song-${r.id}">${esc(DB.songById[r.id].name)}</a></span>
+         <span class="row-gap"><button class="btn" type="button" id="gHear">${ICON.vol} Hear more</button><button class="btn primary" type="button" id="gNext">${G.i + 1 < G.rounds.length ? "Next round" : "See results"}</button></span>`
+      : `<button class="btn ghost" type="button" id="gQuit">Quit</button><button class="btn" type="button" id="gSkip">Skip</button>`}</div>
+  </div>`;
+  $("#gPlay").addEventListener("click", () => done ? guessPlay(r, 15) : guessPlay(r));
+  $$(".g-choice", box).forEach(b => b.addEventListener("click", () => guessPick(b.dataset.id)));
+  if (done){ $("#gNext").addEventListener("click", guessNext); $("#gHear").addEventListener("click", () => guessPlay(r, 15)); $("#gNext").focus(); }
+  else { $("#gSkip").addEventListener("click", () => guessPick("skip")); $("#gQuit").addEventListener("click", renderGuessSetup); if (!r.plays) guessPlay(r); }
+}
+
+async function guessPlay(r, len){
+  const done = r.pick !== null;
+  if (!done && r.plays >= 3){ toast("No replays left. Make your guess."); return; }
+  guessStop(); const token = G.token, s = DB.songById[r.id], clip = len || guessLevel().clip, a = G.audio;
+  $("#gPlay") && $("#gPlay").classList.add("loading");
+  try {
+    const url = await resolveAudio(s.audio_file); if (token !== G.token) return;
+    if (a.dataset.src !== url){ a.src = url; a.dataset.src = url; }
+    if (!(a.readyState >= 1)) await new Promise((ok, bad) => { a.addEventListener("loadedmetadata", ok, {once:true}); a.addEventListener("error", bad, {once:true}); });
+    if (token !== G.token) return;
+    if (r.start === null){ const d = isFinite(a.duration) ? a.duration : 30;
+      r.start = G.cfg.start === "random" ? Math.max(0, Math.random() * Math.max(0, d - guessLevel().clip - 2)) : 0; }
+    a.currentTime = r.start; await a.play();
+    if (token !== G.token){ a.pause(); return; }
+    if (!done){ r.plays++; const h = $("#gHint"); if (h) h.textContent = `Played ${r.plays}× · ${3 - r.plays} replay${3 - r.plays === 1 ? "" : "s"} left`; }
+  } catch(e){ toast("Couldn't load this clip. Skipping it.", true); if (!done) guessPick("skip", true); return; }
+  finally { $("#gPlay") && $("#gPlay").classList.remove("loading"); }
+  const t0 = performance.now(), ring = $("#gRing"), btn = $("#gPlay");
+  btn && btn.classList.add("on");
+  const tick = () => { const p = Math.min(1, (performance.now() - t0) / (clip * 1000)); if (ring) ring.style.strokeDashoffset = String(339.3 * (1 - p)); if (p < 1 && token === G.token) G.raf = requestAnimationFrame(tick); };
+  tick();
+  G.stopT = setTimeout(() => { if (token === G.token){ a.pause(); btn && btn.classList.remove("on"); if (ring) ring.style.strokeDashoffset = "339.3"; } }, clip * 1000);
+}
+
+function guessPick(id, silent){
+  const r = G.rounds[G.i]; if (r.pick !== null) return;
+  r.pick = id; guessStop();
+  if (id === r.id){
+    G.streak++; G.best = Math.max(G.best, G.streak);
+    r.pts = Math.round(([100, 100, 75, 50][r.plays] || 50) * guessLevel().mult + Math.min(50, (G.streak - 1) * 10));
+    G.score += r.pts;
+  } else G.streak = 0;
+  renderGuessRound();
+}
+function guessNext(){ guessStop(); if (G.i + 1 < G.rounds.length){ G.i++; renderGuessRound(); } else renderGuessDone(); }
+
+function renderGuessDone(){
+  G.phase = "done"; guessStop();
+  const box = $("#guessBox"); if (!box) return;
+  const right = G.rounds.filter(r => r.pick === r.id).length, key = guessBestKey(), prev = store.get(key, 0), isBest = G.score > prev;
+  if (isBest) store.set(key, G.score);
+  box.innerHTML = `<div class="card guess-done">
+    <div class="stats g-summary"><div class="stat"><b class="mono" style="color:var(--accent-strong)">${G.score}</b><span>${isBest ? "New best!" : `Best ${Math.max(prev, G.score)}`}</span></div>
+      <div class="stat"><b>${right}/${G.rounds.length}</b><span>Correct</span></div><div class="stat"><b>${G.best}</b><span>Best streak</span></div>
+      <div class="stat"><b>${guessLevel().label}</b><span>${G.cfg.start === "random" ? "Random parts" : "From the start"}</span></div></div>
+    <div class="table compact">${G.rounds.map((r, n) => { const s = DB.songById[r.id], ok = r.pick === r.id;
+      return `<div class="row g-recap"><span class="g-mark ${ok ? "ok" : "bad"}">${ok ? "✓" : "✕"}</span><span class="grow"><a href="#song-${s.id}"><b>${esc(s.name)}</b></a><small class="muted"> · ${esc(s.author || "")}</small></span><span class="mono small">${ok ? "+" + r.pts : r.pick === "skip" ? "skipped" : "—"}</span></div>`; }).join("")}</div>
+    <div class="g-foot"><button class="btn" type="button" id="gSet">Change settings</button><button class="btn primary" type="button" id="gAgain">Play again</button></div>
+  </div>`;
+  $("#gSet").addEventListener("click", renderGuessSetup);
+  $("#gAgain").addEventListener("click", startGuess);
+}
+document.addEventListener("keydown", e => {
+  if (route().name !== "guess" || G.phase !== "play" || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || $("#modalBg")) return;
+  const r = G.rounds[G.i]; if (!r) return;
+  if (e.key === " "){ e.preventDefault(); r.pick !== null ? guessNext() : guessPlay(r); }
+  else if (/^[1-4]$/.test(e.key) && r.pick === null){ const id = r.choices[+e.key - 1]; if (id) guessPick(id); }
+  else if (e.key === "Enter" && r.pick !== null){ e.preventDefault(); guessNext(); }
+});
+window.addEventListener("hashchange", () => { if (route().name !== "guess") guessStop(); });
+
+/* =====================================================================
    ROUTER
    ===================================================================== */
 function route(){
   const h = decodeURIComponent(location.hash.slice(1)); let m;
   if (!h || h === "list") return {name:"list"};
-  if (["levels","authors","search","login","signup","account","playlists","request","request-song"].includes(h)) return {name:h};
+  if (["levels","authors","search","login","signup","account","playlists","request","request-song","guess"].includes(h)) return {name:h};
   if ((m = h.match(/^author-([\w-]+)$/))) return {name:"author", id:m[1]};
   if (h === "settings") return {name:"settings", id:""};
   if ((m = h.match(/^settings-([a-z]+)$/))) return {name:"settings", id:m[1]};
@@ -2177,7 +2346,7 @@ function route(){
   if (/^(access_token|error)=/.test(h)) return {name:"list"};   // auth redirect fragments
   return {name:"404"};
 }
-const NEEDS_DATA = new Set(["list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
+const NEEDS_DATA = new Set(["guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
   document.body.dataset.route = r.name;
@@ -2200,6 +2369,7 @@ function render(opts = {}){
     case "account": title = "Profile"; app.innerHTML = viewAccount(); mountAccount(); break;
     case "settings": title = "Settings"; app.innerHTML = viewSettings(r.id); mountSettings(r.id); break;
     case "request": case "request-song": title = "Request"; { const k = r.name === "request-song" ? "song" : "level"; app.innerHTML = viewRequest(k); mountRequest(k); } break;
+    case "guess": title = "Guess the Song"; app.innerHTML = viewGuess(); mountGuess(); break;
     case "playlists": title = "Playlists"; app.innerHTML = viewPlaylists(); mountPlaylists(); break;
     case "playlist": title = "Playlist"; app.innerHTML = viewPlaylist(); mountPlaylist(r.id); break;
     case "admin": title = "Admin"; app.innerHTML = viewAdmin(r.id); mountAdmin(r.id); break;
