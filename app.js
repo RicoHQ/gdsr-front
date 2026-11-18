@@ -708,7 +708,7 @@ function scoreCell(s){
 }
 function songRow(s, rank, q){
   return `<div class="row" data-song="${s.id}">
-    <span class="rank${rank && rank <= 3 ? " top" : ""}">${rank || "–"}</span>
+    <span class="rank${rank && rank <= 3 ? ` top r${rank}` : ""}">${rank || "–"}</span>
     ${playBtn(s)}
     <span class="ttl"><span class="tline"><a class="t" href="#song-${s.id}">${hl(s.name, q)}</a>${marks(s)}</span><span class="sub">${authorLinks(s.author, q)} · ${hl(creditText(s), q)}</span>
       <span class="meta">${typeBadge(s.type)}<span>ID ${hl(s.song_id ?? "—", q)}</span><span>${lenText(s.length)}</span></span></span>
@@ -727,7 +727,7 @@ function bindPlayButtons(root, contextIds){
 }
 function levelCard(lv, q){
   const list = songsFor(lv.song_id), best = list.find(s => overall(s) !== null);
-  return `<a class="lvcard" href="#level-${lv.id}">
+  return `<a class="lvcard" href="#level-${lv.id}" style="--dc:${DIFF[lv.difficulty] || "#5a7064"}">
     <div class="lv-top">${diffBadge(lv.difficulty)}${starsBadge(lv.stars)}</div>
     <h3>${hl(lv.name, q)}</h3>
     <p class="muted small">by ${hl(lv.creators || "Unknown", q)}</p>
@@ -1545,7 +1545,7 @@ const SONG_FIELDS = [
 ];
 function fieldHtml(f, val, ctx = {}){
   const id = `f_${f.k}`, req = f.req ? ' <span class="req">*</span>' : "", v = val ?? "";
-  const wrap = inner => `<label class="f" data-field="${f.k}">${esc(f.label || f.k)}${req}${inner}${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ""}</label>`;
+  const wrap = inner => `<label class="f" data-field="${f.k}"><span class="lt">${esc(f.label || f.k)}${req}</span>${inner}${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ""}</label>`;
   switch (f.type){
     case "enum": { const opts = f.options.slice(); if (v && !opts.includes(v)) opts.unshift(v);
       return wrap(`<select class="select" id="${id}" name="${f.k}" ${f.req ? "required" : ""}><option value="">—</option>${opts.map(o => `<option value="${esc(o)}"${o === v ? " selected" : ""}>${esc((f.labels && f.labels[o]) || o)}</option>`).join("")}</select>`); }
@@ -1564,7 +1564,7 @@ function fieldHtml(f, val, ctx = {}){
           <label><input type="radio" name="song_b_mode" value="site" ${ext ? "" : "checked"}><span>On GDSR · choose it</span></label>
         </div>
         <div class="sb-ext row2">
-          <label class="f">Song name <span class="req">*</span><input class="input" name="song_b_name" value="${esc(row.song_b_name || "")}" maxlength="120" placeholder="e.g. Tunak Tunak Tun"></label>
+          <label class="f"><span class="lt">Song name <span class="req">*</span></span><input class="input" name="song_b_name" value="${esc(row.song_b_name || "")}" maxlength="120" placeholder="e.g. Tunak Tunak Tun"></label>
           <label class="f">Original artist<input class="input" name="song_b_author" value="${esc(row.song_b_author || "")}" maxlength="120" placeholder="Optional"></label>
           <span class="hint" style="grid-column:1/-1">People rate this song on the mashup's page.</span>
         </div>
@@ -2176,6 +2176,8 @@ function route(){
 const NEEDS_DATA = new Set(["list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
+  document.body.dataset.route = r.name;
+  if (r.name === "search" && matchMedia("(max-width:760px)").matches && !state.searchQ) setTimeout(() => hq.focus(), 50);
   $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "author" && a.dataset.nav === "authors") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
   if (r.name !== "search" && document.activeElement !== hq) hq.value = "";
   $("#queue").classList.remove("on"); toggleMenu(false); toggleSpeed(false);
