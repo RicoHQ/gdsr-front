@@ -1,5 +1,6 @@
 #include "SubmitPopup.hpp"
 #include "LoginPopup.hpp"
+#include "HubPopup.hpp"
 #include "Theme.hpp"
 #include "../Api.hpp"
 #include "../Config.hpp"
@@ -19,8 +20,9 @@ static constexpr float CARD_W = 194.f;
 static constexpr float CARD_H = 112.f;
 static constexpr float CARD_TOP = H - 60.f;
 
-static char const* TYPE_KEYS[] = { "original", "remix", "cover", "mashup" };
-static char const* TYPE_NAMES[] = { "Original", "Remix", "Cover", "Mashup" };
+static char const* TYPE_KEYS[] = { "original", "remix", "cover", "mashup", "nong" };
+static char const* TYPE_NAMES[] = { "Original", "Remix", "Cover", "Mashup", "NONG" };
+static constexpr int TYPE_N = 5;
 
 // ---------------------------------------------------------------- level helpers
 
@@ -239,7 +241,7 @@ bool SubmitPopup::init(GJGameLevel* level, std::string exactLength) {
     m_exactLength = std::move(exactLength);
     m_audio = findLevelAudio(level);
     m_wantSong = m_audio.readable;
-    m_type = m_audio.origin == AudioOrigin::Jukebox ? "remix" : "original";
+    m_type = m_audio.origin == AudioOrigin::Jukebox ? "nong" : "original";
 
     buildHeader();
     buildLevelCard();
@@ -270,6 +272,10 @@ void SubmitPopup::buildHeader() {
     m_modeLabel->setAnchorPoint({ 0.f, .5f });
     m_modeLabel->setPosition({ 63.f, H - 36.f });
     m_mainLayer->addChild(m_modeLabel);
+
+    auto hub = ui::button("Open GDSR", ui::Style::Dark, 70.f, 17.f, this, menu_selector(SubmitPopup::onOpenHub), .28f);
+    hub->setPosition({ 63.f + title->getScaledContentSize().width + 8.f + 35.f, H - 21.f });
+    m_buttonMenu->addChild(hub);
 
     m_accountNode = CCNode::create();
     m_accountNode->setPosition({ W - 16.f, H - 28.f });
@@ -387,10 +393,10 @@ void SubmitPopup::buildSongFields() {
     m_typeTitle->setPosition({ 16.f, y });
     m_mainLayer->addChild(m_typeTitle);
 
-    for (int i = 0; i < 4; i++) {
-        auto btn = ui::button(TYPE_NAMES[i], ui::Style::Dark, 72.f, 22.f, this, menu_selector(SubmitPopup::onType), .34f);
+    for (int i = 0; i < TYPE_N; i++) {
+        auto btn = ui::button(TYPE_NAMES[i], ui::Style::Dark, 62.f, 22.f, this, menu_selector(SubmitPopup::onType), .32f);
         btn->setTag(i);
-        btn->setPosition({ 92.f + i * 78.f, y });
+        btn->setPosition({ 86.f + i * 66.f, y });
         m_buttonMenu->addChild(btn);
         m_typeButtons.push_back(btn);
     }
@@ -516,9 +522,9 @@ void SubmitPopup::refreshCards() {
 void SubmitPopup::refreshSongFields() {
     bool show = m_wantSong;
     m_typeTitle->setVisible(show);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < TYPE_N; i++) {
         bool on = m_type == TYPE_KEYS[i];
-        ui::setButtonText(m_typeButtons[i], TYPE_NAMES[i], on ? ui::Style::Primary : ui::Style::Dark, 72.f, 22.f, .34f);
+        ui::setButtonText(m_typeButtons[i], TYPE_NAMES[i], on ? ui::Style::Primary : ui::Style::Dark, 62.f, 22.f, .32f);
         m_typeButtons[i]->setVisible(show);
         m_typeButtons[i]->setEnabled(show);
     }
@@ -587,7 +593,7 @@ void SubmitPopup::onSongTick(CCObject*) {
 
 void SubmitPopup::onType(CCObject* sender) {
     int i = static_cast<CCNode*>(sender)->getTag();
-    if (i < 0 || i > 3) return;
+    if (i < 0 || i >= TYPE_N) return;
     m_type = TYPE_KEYS[i];
     refreshSongFields();
     if (m_type == "mashup" && m_remoteLoaded && m_remote.originalSongUUID.empty()) {
@@ -616,6 +622,10 @@ void SubmitPopup::onSignOut(CCObject*) {
     refreshCards();
     refreshSubmit();
     setStatus("Signed out.", ui::FAINT);
+}
+
+void SubmitPopup::onOpenHub(CCObject*) {
+    if (auto popup = HubPopup::create(0)) popup->show();
 }
 
 void SubmitPopup::onOpenSite(CCObject*) {

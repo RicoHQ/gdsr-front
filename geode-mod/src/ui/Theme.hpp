@@ -24,4 +24,20 @@ namespace gdsr::ui {
     CCMenuItemSpriteExtra* button(std::string const& text, Style style, float width, float height, cocos2d::CCObject* target, cocos2d::SEL_MenuHandler sel, float textScale = .45f);
     void setButtonText(CCMenuItemSpriteExtra* btn, std::string const& text, Style style, float width, float height, float textScale = .45f);
     void setEnabled(CCMenuItemSpriteExtra* btn, bool enabled);
+
+    // toggle-looking button: green when on
+    CCMenuItemSpriteExtra* toggle(std::string const& text, bool on, float width, float height, cocos2d::CCObject* target, cocos2d::SEL_MenuHandler sel, float textScale = .32f);
+    void setToggle(CCMenuItemSpriteExtra* btn, std::string const& text, bool on, float width, float height, float textScale = .32f);
+
+    // square button with an icon (ic_play.png, ic_pause.png, ...)
+    cocos2d::CCNode* iconSprite(char const* icon, Style style, float size);
+    CCMenuItemSpriteExtra* iconButton(char const* icon, Style style, float size, cocos2d::CCObject* target, cocos2d::SEL_MenuHandler sel);
+    void setIcon(CCMenuItemSpriteExtra* btn, char const* icon, Style style, float size);
+
+    // flat colored rectangle (progress bars, dividers)
+    cocos2d::CCSprite* rect(float width, float height, cocos2d::ccColor3B color, GLubyte opacity = 255);
+    void sizeRect(cocos2d::CCSprite* r, float width, float height);
+
+    // a card background with a left-aligned title and subtitle; used for list rows
+    geode::NineSlice* card(cocos2d::CCSize size, bool highlighted = false);
 }

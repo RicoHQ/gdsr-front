@@ -82,4 +82,58 @@ void setEnabled(CCMenuItemSpriteExtra* btn, bool enabled) {
     }
 }
 
+CCMenuItemSpriteExtra* toggle(std::string const& text, bool on, float width, float height, CCObject* target, SEL_MenuHandler sel, float textScale) {
+    return button(text, on ? Style::Primary : Style::Dark, width, height, target, sel, textScale);
+}
+
+void setToggle(CCMenuItemSpriteExtra* btn, std::string const& text, bool on, float width, float height, float textScale) {
+    setButtonText(btn, text, on ? Style::Primary : Style::Dark, width, height, textScale);
+}
+
+CCNode* iconSprite(char const* icon, Style style, float size) {
+    auto node = CCNode::create();
+    node->setContentSize({ size, size });
+    node->setAnchorPoint({ .5f, .5f });
+    auto bg = surface(textureFor(style), { size, size });
+    bg->setPosition(size / 2, size / 2);
+    node->addChild(bg);
+    if (auto spr = CCSprite::create(icon)) {
+        spr->setScale(size * .62f / spr->getContentSize().width);
+        spr->setColor(style == Style::Primary ? ON_ACCENT : (style == Style::Danger ? DANGER : TEXT));
+        spr->setPosition({ size / 2, size / 2 });
+        node->addChild(spr);
+    }
+    return node;
+}
+
+CCMenuItemSpriteExtra* iconButton(char const* icon, Style style, float size, CCObject* target, SEL_MenuHandler sel) {
+    return CCMenuItemSpriteExtra::create(iconSprite(icon, style, size), target, sel);
+}
+
+void setIcon(CCMenuItemSpriteExtra* btn, char const* icon, Style style, float size) {
+    if (!btn) return;
+    btn->setNormalImage(iconSprite(icon, style, size));
+    btn->setContentSize({ size, size });
+}
+
+CCSprite* rect(float width, float height, ccColor3B color, GLubyte opacity) {
+    auto r = CCSprite::create("bar.png"_spr);
+    if (!r) r = CCSprite::create();
+    r->setColor(color);
+    r->setOpacity(opacity);
+    sizeRect(r, width, height);
+    return r;
+}
+
+void sizeRect(CCSprite* r, float width, float height) {
+    auto s = r->getContentSize();
+    if (s.width <= 0 || s.height <= 0) return;
+    r->setScaleX(std::max(0.f, width) / s.width);
+    r->setScaleY(height / s.height);
+}
+
+NineSlice* card(CCSize size, bool highlighted) {
+    return surface(highlighted ? "card_on.png"_spr : "card.png"_spr, size);
+}
+
 }

@@ -76,6 +76,7 @@ namespace gdsr {
         void onSignOut(cocos2d::CCObject*);
         void onSubmit(cocos2d::CCObject*);
         void onOpenSite(cocos2d::CCObject*);
+        void onOpenHub(cocos2d::CCObject*);
 
     public:
         static SubmitPopup* create(GJGameLevel* level, std::string exactLength);
