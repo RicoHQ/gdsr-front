@@ -788,13 +788,37 @@ function listFiltered(){
     author:(a,b) => (splitAuthors(a.author)[0] || "~").localeCompare(splitAuthors(b.author)[0] || "~", undefined, {sensitivity:"base"}) || byScore(a, b)};
   return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(sorters[state.listSort]);
 }
+const LIST_PAGE = 40;
+let listObserver = null;
 function renderListBody(){
   const rankMap = new Map(ranked().filter(s => overall(s) !== null).map((s, i) => [s, i + 1]));
   const list = listFiltered();
   const el = $("#listBody");
-  el.innerHTML = list.length ? tableHead() + list.map(s => songRow(s, rankMap.get(s), state.listQ)).join("")
-    : emptyState(DB.songs.length ? "No songs match" : "No songs yet", DB.songs.length ? "Try a different filter or search." : "Approved songs will show up here.");
-  bindPlayButtons(el, list.map(s => s.id));
+  if (listObserver){ listObserver.disconnect(); listObserver = null; }
+  if (!list.length){
+    el.innerHTML = emptyState(DB.songs.length ? "No songs match" : "No songs yet", DB.songs.length ? "Try a different filter or search." : "Approved songs will show up here.");
+    return;
+  }
+  const ids = list.map(s => s.id);
+  let shown = 0;
+  el.innerHTML = tableHead() + `<div class="list-more" aria-hidden="true"></div>`;
+  const sentinel = $(".list-more", el);
+  // render the list in pages; the next page is added when the end comes into view
+  const more = () => {
+    if (shown >= list.length) return false;
+    const box = document.createElement("div");
+    box.innerHTML = list.slice(shown, shown + LIST_PAGE).map(s => songRow(s, rankMap.get(s), state.listQ)).join("");
+    bindPlayButtons(box, ids);
+    while (box.firstChild) el.insertBefore(box.firstChild, sentinel);
+    shown = Math.min(list.length, shown + LIST_PAGE);
+    if (shown >= list.length){ sentinel.remove(); if (listObserver){ listObserver.disconnect(); listObserver = null; } }
+    return true;
+  };
+  more();
+  if (shown < list.length && "IntersectionObserver" in window){
+    listObserver = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) more(); }, {rootMargin:"800px 0px"});
+    listObserver.observe(sentinel);
+  } else while (more());
 }
 function mountList(){
   renderListBody();
@@ -808,7 +832,7 @@ function mountList(){
    VIEW: LEVELS
    ===================================================================== */
 function viewLevels(){
-  return `${dataNotice()}<section class="hero single"><div><p class="eyebrow">Browse</p><h1>Levels</h1><p class="lead">Pick a level to see every song uploaded to its song ID, ranked by score.</p></div></section>
+  return `${dataNotice()}<section class="hero single"><div><h1>Levels</h1><p class="lead">Pick a level to see every song uploaded to its song ID, ranked by score.</p></div></section>
   <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
     <label class="field" style="flex:1 1 320px"><span class="sr-only">Search levels</span>${ICON.search}<input id="lvQ" type="search" placeholder="Search by name, ID, creator, verifier…" value="${esc(state.lvQ)}" autocomplete="off"></label>
     <label><span class="sr-only">Difficulty</span><select class="select" id="lvDiff"><option value="all">All difficulties</option>${DIFF_ORDER.map(d => `<option${state.lvDiff === d ? " selected" : ""}>${d}</option>`).join("")}</select></label>
@@ -1174,7 +1198,7 @@ async function mountSong(s){
    VIEW: SEARCH
    ===================================================================== */
 function viewSearch(){
-  return `<section class="hero single" style="margin-bottom:18px"><div><p class="eyebrow">Search everything</p><h1>Search</h1><p class="lead" id="searchSummary"></p></div></section>
+  return `<section class="hero single" style="margin-bottom:18px"><div><h1>Search</h1><p class="lead" id="searchSummary"></p></div></section>
     <div class="toolbar"><div class="chips" id="searchTabs" role="group" aria-label="Result type"></div></div><div id="searchResults"></div>`;
 }
 function renderSearch(){
@@ -1214,7 +1238,7 @@ function authorCard(a, q){
   </a>`;
 }
 function viewAuthors(){
-  return `${dataNotice()}<section class="hero single"><div><p class="eyebrow">Browse</p><h1>Authors</h1><p class="lead">Everyone who made a song, mashup, cover or remix on GDSR. Pick one to see all their songs.</p></div></section>
+  return `${dataNotice()}<section class="hero single"><div><h1>Authors</h1><p class="lead">Everyone who made a song, mashup, cover or remix on GDSR. Pick one to see all their songs.</p></div></section>
   <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
     <label class="field" style="flex:1 1 320px"><span class="sr-only">Search authors</span>${ICON.search}<input id="auQ" type="search" placeholder="Search authors…" value="${esc(state.auQ || "")}" autocomplete="off"></label>
     <label><span class="sr-only">Sort authors</span><select class="select" id="auSort">${[["songs","Most songs"],["score","Top average score"],["votes","Most votes"],["name","A–Z"]].map(([v, l]) => `<option value="${v}"${(state.auSort || "songs") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -1240,7 +1264,7 @@ function viewAuthor(a){
   return `<a class="back" href="#authors">${ICON.back} All authors</a>
   <section class="page-head"><div style="display:flex;gap:16px;align-items:center">
       <div class="avatar-lg">${esc(a.name.slice(0, 1).toUpperCase())}</div>
-      <div><p class="eyebrow" style="margin-bottom:4px">Author</p><h1 style="font-size:32px">${esc(a.name)}</h1></div></div>
+      <div><h1 style="font-size:32px">${esc(a.name)}</h1></div></div>
     <div class="btns"><button class="btn primary" id="auPlay" type="button">${ICON.play} Play all</button><button class="btn" id="auShuffle" type="button">${ICON.shuffle} Shuffle</button><button class="btn" id="auSave" type="button">${ICON.plus} Save as playlist</button></div></section>
   <div class="stats" style="margin:16px 0 0">
     <div class="stat"><b>${st.count}</b><span>Songs</span></div>
@@ -1650,7 +1674,7 @@ function readForm(form, fields){
 function viewRequest(kind){
   if (!ME.user) return requireLogin("request levels and songs");
   const fields = kind === "song" ? SONG_FIELDS : LEVEL_FIELDS;
-  return `<section class="hero single"><div><p class="eyebrow">Contribute</p><h1>Request a ${kind}</h1><p class="lead">Admins review every request. You can follow its status on your account page.</p></div></section>
+  return `<section class="hero single"><div><h1>Request a ${kind}</h1><p class="lead">Admins review every request. You can follow its status on your account page.</p></div></section>
   <div class="auth-wrap" style="max-width:640px;margin-top:0"><div class="card card-pad">
     <div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="${kind === "level"}" data-kind="request">Level</button><button type="button" role="tab" aria-selected="${kind === "song"}" data-kind="request-song">Song</button></div>
     <form class="form" id="reqForm" novalidate>
@@ -1691,7 +1715,7 @@ function mountRequest(kind){
    VIEW: PLAYLISTS
    ===================================================================== */
 function viewPlaylists(){
-  return `<section class="hero single"><div><p class="eyebrow">Music</p><h1>Playlists</h1><p class="lead">Build playlists, play them in the player, and share them as a file of song IDs.</p></div></section>
+  return `<section class="hero single"><div><h1>Playlists</h1><p class="lead">Build playlists, play them in the player, and share them as a file of song IDs.</p></div></section>
     <div id="plNotice"></div>
     <div class="toolbar"><div class="btns"><button class="btn primary" id="plNew" type="button">${ICON.plus} New playlist</button><button class="btn" id="plImport" type="button">Import</button></div></div>
     <div id="plBody">${skeleton(3)}</div>`;
@@ -2183,7 +2207,7 @@ const guessBestKey = () => `guessBest-${G.cfg.level}-${G.cfg.start}`;
 function guessStop(){ clearTimeout(G.stopT); G.token++; try { G.audio.pause(); } catch(_){} cancelAnimationFrame(G.raf); }
 
 function viewGuess(){
-  return `${dataNotice()}<section class="hero single"><div><p class="eyebrow">Mini game</p><h1>Guess the Song</h1>
+  return `${dataNotice()}<section class="hero single"><div><h1>Guess the Song</h1>
     <p class="lead">Hear a short clip and pick the right song. Shorter clips score more.</p></div></section>
     <div id="guessBox"></div>`;
 }
@@ -2350,6 +2374,7 @@ function route(){
 const NEEDS_DATA = new Set(["guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
+  if (listObserver){ listObserver.disconnect(); listObserver = null; }
   document.body.dataset.route = r.name;
   if (r.name === "search" && matchMedia("(max-width:760px)").matches && !state.searchQ) setTimeout(() => hq.focus(), 50);
   $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "author" && a.dataset.nav === "authors") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));

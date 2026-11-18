@@ -855,3 +855,96 @@ body.standalone .tabbar{padding-bottom:env(safe-area-inset-bottom)}
   .g-start .btn{width:100%;justify-content:center}
 }
 .g-recap .grow{flex:1;min-width:0}
+
+/* =====================================================================
+   CALM LAYER (v16) — flat surfaces, no glow, system fonts, cheaper paint
+   ===================================================================== */
+:root{
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Menlo,Consolas,monospace;
+  --radius:10px; --radius-sm:8px;
+  --shadow:none; --shadow-lg:0 12px 32px rgba(0,0,0,.45);
+  --ring:0 0 0 2px rgba(52,209,122,.45);
+}
+body{background:var(--bg);background-image:none;font-feature-settings:normal;letter-spacing:0}
+@media (max-width:760px){ body{background-size:auto} }
+
+/* headings: plain, solid colour */
+h1{background:none;-webkit-background-clip:border-box;background-clip:border-box;color:var(--text);font-weight:700;letter-spacing:-.02em;font-size:clamp(26px,3.2vw,34px)}
+h2{font-weight:650;letter-spacing:-.01em}
+.eyebrow{display:none}
+.lead{font-size:15px;color:var(--muted);margin-top:6px;max-width:62ch}
+.hero{margin-bottom:22px}
+
+/* header, tab bar, player: solid instead of blurred glass */
+.hdr{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;border-bottom:1px solid var(--border)}
+.logo{filter:none}
+.nav{background:none;border:0;padding:0}
+.nav a.active{background:var(--surface2);box-shadow:none}
+.acct,.btn,.chip,.pbtn{box-shadow:none}
+.acct .av{background:var(--surface3);box-shadow:none}
+.player{background:var(--bg2);backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none}
+.pl-art,.ib.main{box-shadow:none}
+@media (max-width:760px){
+  .tabbar{background:var(--bg2);backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none}
+  .tabbar a.active::before{display:none}
+  h1{font-size:26px}
+}
+.modal-bg{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.65)}
+.modal{background:var(--surface);box-shadow:var(--shadow-lg);animation:none}
+.modal-f{background:var(--bg2)}
+.menu{background:var(--surface);box-shadow:var(--shadow-lg)}
+.toast{background:var(--surface2);backdrop-filter:none;box-shadow:var(--shadow-lg)}
+.toast::before{box-shadow:none}
+
+/* surfaces: one flat colour and a border */
+.card,.table,.set-card,.atable-wrap,.info,.side,.stats,.lvcard,.page-head{background:var(--surface);box-shadow:none}
+.page-head{border-radius:var(--radius)}
+.page-head::after{display:none}
+.stat span{text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:500;color:var(--muted)}
+.stat b{font-weight:600;font-size:22px}
+
+/* buttons and chips */
+.btn.primary{background:var(--accent);border-color:var(--accent);box-shadow:none}
+.btn.primary:hover:not(:disabled){background:#3fd884}
+.chip[aria-pressed="true"]{box-shadow:none}
+.pbtn:hover:not(:disabled){box-shadow:none;border-color:var(--accent-line)}
+
+/* ranked table */
+.row:hover{background:var(--hover)}
+.row::before{transition:none}
+.rank.r1,.rank.r2,.rank.r3{box-shadow:none}
+.rank.r1{background:var(--gold)}
+.rank.r2{background:var(--silver)}
+.rank.r3{background:var(--bronze)}
+.score .bar i{background-image:none}
+
+/* level cards: difficulty shown by a thin left edge, no glow blob */
+.lvcard{border-left:3px solid var(--dc,var(--border2))}
+.lvcard::before,.lvcard::after{display:none}
+.lvcard:hover{transform:none;box-shadow:none;border-color:var(--border2);border-left-color:var(--dc,var(--border2));background:var(--hover)}
+
+/* song page */
+.ring{filter:none}
+.bigplay{box-shadow:none}
+.video{background:var(--bg2);box-shadow:none}
+.skel{animation-duration:1.6s}
+
+/* guess the song */
+.g-play{background:var(--surface2);box-shadow:none}
+.g-play.on{animation:none;background:var(--surface3)}
+.g-level[aria-pressed="true"]{background:var(--surface2);border-color:var(--accent)}
+.g-choice:hover:not(:disabled){transform:none}
+
+/* off-screen rows skip layout and paint until scrolled near */
+.table > .row{content-visibility:auto;contain-intrinsic-size:auto 66px}
+.list-more{height:1px}
+/* labels in sentence case, not spaced-out monospace capitals */
+.thead,.lv-meta small,.idchip small,.info dt,.breakdown .lbl,.side h4,.atable th,.kv div small{text-transform:none;letter-spacing:0;font-family:var(--font);font-weight:550}
+.thead{font-size:12.5px;color:var(--muted)}
+/* fewer pills */
+.chip{border-radius:7px;height:32px}
+.badge,.pill{border-radius:5px}
+.acct{border-radius:8px}
+.mod-btn,.install-btn{border-radius:8px}
+@media (max-width:760px){ .hs-btn{border-radius:8px} .acct{border-radius:8px} }
