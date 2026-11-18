@@ -368,6 +368,8 @@ function renderHeader(){
        <button type="button" role="menuitem" class="danger" id="menuSignOut">${ICON.logout}Sign out</button>`
     : `${item("#login", ICON.user, "Sign in")}${item("#signup", ICON.plus, "Create account")}<hr>${item("#settings", ICON.gear, "Settings")}`;
   $("#adminLink").hidden = !ME.isAdmin;
+  const at = $("#adminTab"); if (at) at.hidden = !ME.isAdmin;
+  document.body.classList.toggle("is-admin", !!ME.isAdmin);
   const so = $("#menuSignOut");
   if (so) so.onclick = signOut;
 }
@@ -763,7 +765,7 @@ function viewList(){
   const totalV = DB.songs.reduce((a, s) => a + voteCount(s), 0);
   return `${dataNotice()}
   <section class="hero">
-    <div><p class="eyebrow">Geometry Dash · Song replacements</p><h1>The List</h1>
+    <div><h1>The List</h1>
       <p class="lead">Every mashup, cover and remix, ranked by community score from 0 to 100.</p></div>
     <div class="stats">
       <div class="stat"><b>${DB.songs.length}</b><span>Songs</span></div>

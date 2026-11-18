@@ -758,3 +758,29 @@ body.standalone .tabbar{padding-bottom:env(safe-area-inset-bottom)}
 .mod-cta b{display:block;font-size:14.5px}
 .mod-cta .grow > span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
 @media (max-width:560px){ .mod-cta{flex-wrap:wrap} .mod-cta .btn{width:100%} }
+.mod-btn{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 13px;border-radius:12px;border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent-strong);font-weight:600;font-size:13px;white-space:nowrap;transition:background .15s,color .15s}
+.mod-btn:hover{background:var(--accent);color:#06140c}
+.mod-btn svg{width:16px;height:16px}
+.tabbar a[hidden]{display:none!important}
+@media (max-width:760px){
+  .mod-btn{width:40px;padding:0;justify-content:center}
+  .mod-btn span{display:none}
+  .hs-btn{margin-left:auto}
+  body.is-admin .tabbar{grid-template-columns:repeat(6,1fr)}
+  .tabbar a.admin-tab.active{color:#f2d272}
+  .tabbar a.admin-tab.active::before{background:rgba(242,210,114,.12)}
+}
+@media (min-width:761px){
+  .nav{flex:none}
+  .hsearch{flex:1 1 200px;min-width:150px;max-width:360px}
+}
+@media (min-width:761px) and (max-width:1180px){
+  .mod-btn{width:40px;padding:0;justify-content:center}
+  .mod-btn span{display:none}
+  .brand small{display:none}
+}
+@media (min-width:761px) and (max-width:940px){
+  .nav{flex:0 1 auto;min-width:0}
+  .hsearch{display:none}
+  .mod-btn{margin-left:auto}
+}
