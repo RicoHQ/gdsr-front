@@ -784,3 +784,27 @@ body.standalone .tabbar{padding-bottom:env(safe-area-inset-bottom)}
   .hsearch{display:none}
   .mod-btn{margin-left:auto}
 }
+/* compact level cards */
+.grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.lvcard{padding:11px 13px 10px;gap:1px;border-radius:13px}
+.lvcard::after{width:100px;height:100px;right:-40px;top:-40px}
+.lv-top{margin-bottom:1px}
+.lv-top .diff{font-size:11.5px;gap:6px}
+.lv-top .diff i{width:7px;height:7px}
+.lv-top .stars{font-size:11.5px}
+.lv-top .stars svg{width:12px;height:12px}
+.lvcard h3{font-size:15px;margin-top:1px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lvcard > p.muted{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-line{display:flex;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;gap:10px;margin-top:7px;padding-top:7px;border-top:1px solid var(--border);font-size:11.5px;color:var(--faint)}
+.lv-line b{font-weight:500;color:var(--muted)}
+.lv-foot{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;color:var(--faint);margin-top:3px}
+.lv-foot b{font-size:13px;font-weight:600}
+@media (max-width:760px){
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .lvcard{padding:10px 11px 9px}
+  .lvcard h3{font-size:14px}
+  .lv-top .diff{font-size:11px}
+  .lv-line{font-size:11px;gap:2px 8px}
+  .lv-line > span:nth-child(2){display:none}
+}
+@media (max-width:340px){ .grid{grid-template-columns:1fr} }

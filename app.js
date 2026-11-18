@@ -734,12 +734,8 @@ function levelCard(lv, q){
     <div class="lv-top">${diffBadge(lv.difficulty)}${starsBadge(lv.stars)}</div>
     <h3>${hl(lv.name, q)}</h3>
     <p class="muted small">by ${hl(lv.creators || "Unknown", q)}</p>
-    <div class="lv-meta">
-      <span><small>Level ID</small><b class="mono">${hl(lv.level_id ?? "—", q)}</b></span>
-      <span><small>Song ID</small><b class="mono">${hl(lv.song_id ?? "—", q)}</b></span>
-      <span><small>Length</small><b class="mono">${esc(lenText(lv.length))}</b></span>
-    </div>
-    <div class="lv-foot"><span>${list.length} song${list.length === 1 ? "" : "s"}</span><span>Top score <b style="color:${scoreColor(best ? overall(best) : null)}">${fmt(best ? overall(best) : null)}</b></span></div>
+    <div class="lv-line"><span title="Level ID">ID <b class="mono">${hl(lv.level_id ?? "—", q)}</b></span><span title="Song ID">Song <b class="mono">${hl(lv.song_id ?? "—", q)}</b></span></div>
+    <div class="lv-foot"><span>${list.length} song${list.length === 1 ? "" : "s"} · <span class="mono" title="Length">${esc(lenText(lv.length))}</span></span><b class="mono" title="Top score" style="color:${scoreColor(best ? overall(best) : null)}">${fmt(best ? overall(best) : null)}</b></div>
   </a>`;
 }
 function chips(id, options, current, label = "Filter by type"){
