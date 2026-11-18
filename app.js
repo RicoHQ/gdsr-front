@@ -754,6 +754,46 @@ function dataNotice(){
   return `<div class="notice err"><b>Couldn't load the catalogue.</b> ${perm ? "The database isn't allowing visitors to read songs and levels yet. An admin needs to run <code>supabase/migration.sql</code>." : esc(DB.error)}</div>`;
 }
 
+
+/* ---------- sorting ---------- */
+// numbers that may be missing always go to the end, whichever direction is chosen
+const byNum = (get, dir = -1) => (a, b) => { const x = get(a), y = get(b);
+  if (x === null || x === undefined) return (y === null || y === undefined) ? 0 : 1;
+  if (y === null || y === undefined) return -1;
+  return dir < 0 ? y - x : x - y; };
+const byText = (get, dir = 1) => (a, b) => dir * String(get(a) || "~").localeCompare(String(get(b) || "~"), undefined, {sensitivity:"base", numeric:true});
+const then = (...cmps) => (a, b) => { for (const c of cmps){ const r = c(a, b); if (r) return r; } return 0; };
+const firstAuthor = s => splitAuthors(s.author)[0] || "";
+const SONG_SORTS = [
+  ["Score", [["score","Top score", byScore], ["scoreLow","Lowest score", then(byNum(s => overall(s), 1), byText(s => s.name))]]],
+  ["Votes", [["votes","Most votes", then(byNum(voteCount), byScore)], ["votesLow","Fewest votes", then(byNum(voteCount, 1), byScore)]]],
+  ["Date added", [["newest","Newest", byText(s => s.created_at, -1)], ["oldest","Oldest", byText(s => s.created_at)]]],
+  ["Length", [["length","Longest", then(byNum(s => parseLen(s.length)), byScore)], ["short","Shortest", then(byNum(s => parseLen(s.length), 1), byScore)]]],
+  ["Name", [["name","Title A–Z", byText(s => s.name)], ["nameZ","Title Z–A", byText(s => s.name, -1)],
+            ["author","Author A–Z", then(byText(firstAuthor), byScore)], ["authorZ","Author Z–A", then(byText(firstAuthor, -1), byScore)]]],
+  ["Other", [["songid","Song ID (low to high)", then(byNum(s => s.song_id === null ? null : +s.song_id, 1), byScore)],
+             ["songidHigh","Song ID (high to low)", then(byNum(s => s.song_id === null ? null : +s.song_id), byScore)],
+             ["type","Type", then((a, b) => TYPES.indexOf(a.type) - TYPES.indexOf(b.type), byScore)]]]
+];
+const songSorter = key => { for (const [, opts] of SONG_SORTS) for (const [k, , f] of opts) if (k === key) return f; return byScore; };
+const sortSelect = (id, groups, current, label = "Sort by") => `<label><span class="sr-only">${label}</span><select class="select" id="${id}">${groups.map(([g, opts]) =>
+  `<optgroup label="${esc(g)}">${opts.map(([v, l]) => `<option value="${v}"${current === v ? " selected" : ""}>${esc(l)}</option>`).join("")}</optgroup>`).join("")}</select></label>`;
+// levels: named lengths from the game, in seconds, so they sort with exact times
+const NAMED_LEN = {tiny:9, short:20, medium:45, long:90, xl:150, platformer:600};
+const levelLen = l => { const p = parseLen(l.length); if (p !== null) return p; const n = NAMED_LEN[String(l.length || "").trim().toLowerCase()]; return n === undefined ? null : n; };
+const levelBest = l => { const s = songsFor(l.song_id).find(x => overall(x) !== null); return s ? overall(s) : null; };
+const LEVEL_SORTS = [
+  ["Name", [["name","A–Z", byText(l => l.name)], ["nameZ","Z–A", byText(l => l.name, -1)]]],
+  ["Difficulty", [["diff","Hardest", then((a, b) => DIFF_ORDER.indexOf(b.difficulty) - DIFF_ORDER.indexOf(a.difficulty), byNum(l => l.stars))],
+                  ["diffLow","Easiest", then(byNum(l => l.difficulty ? DIFF_ORDER.indexOf(l.difficulty) : null, 1), byNum(l => l.stars, 1))],
+                  ["stars","Most stars", then(byNum(l => l.stars || null), byText(l => l.name))], ["starsLow","Fewest stars", then(byNum(l => l.stars || null, 1), byText(l => l.name))]]],
+  ["Length", [["length","Longest", then(byNum(levelLen), byText(l => l.name))], ["short","Shortest", then(byNum(levelLen, 1), byText(l => l.name))]]],
+  ["Songs", [["songs","Most songs", then(byNum(l => songsFor(l.song_id).length || null), byText(l => l.name))], ["best","Best top score", then(byNum(levelBest), byText(l => l.name))]]],
+  ["Other", [["newest","Newest", byText(l => l.created_at, -1)], ["oldest","Oldest", byText(l => l.created_at)],
+             ["levelid","Level ID (low to high)", byNum(l => l.level_id === null ? null : +l.level_id, 1)], ["creator","Creator A–Z", then(byText(l => l.creators), byText(l => l.name))]]]
+];
+const levelSorter = key => { for (const [, opts] of LEVEL_SORTS) for (const [k, , f] of opts) if (k === key) return f; return LEVEL_SORTS[0][1][0][2]; };
+
 /* =====================================================================
    VIEW: THE LIST
    ===================================================================== */
@@ -774,19 +814,14 @@ function viewList(){
     ${chips("listChips", typeOptions(DB.songs), state.listType)}
     <div class="toolbar-right">
       <label class="field"><span class="sr-only">Filter the list</span>${ICON.search}<input id="listQ" type="search" placeholder="Filter the list…" value="${esc(state.listQ)}" autocomplete="off"></label>
-      <label><span class="sr-only">Sort by</span><select class="select" id="listSort">
-        ${[["score","Top score"],["votes","Most votes"],["newest","Newest"],["length","Longest"],["name","A–Z"],["author","Author A–Z"]].map(([v,l]) => `<option value="${v}"${state.listSort === v ? " selected" : ""}>${l}</option>`).join("")}
-      </select></label>
+      ${sortSelect("listSort", SONG_SORTS, state.listSort)}
       <button class="btn" id="listPlay" type="button">${ICON.play} Play all</button>
     </div>
   </div>
   <div class="table" id="listBody"></div>`;
 }
 function listFiltered(){
-  const sorters = {score:byScore, votes:(a,b) => voteCount(b) - voteCount(a), newest:(a,b) => String(b.created_at).localeCompare(String(a.created_at)),
-    length:(a,b) => (parseLen(b.length) || 0) - (parseLen(a.length) || 0), name:(a,b) => a.name.localeCompare(b.name),
-    author:(a,b) => (splitAuthors(a.author)[0] || "~").localeCompare(splitAuthors(b.author)[0] || "~", undefined, {sensitivity:"base"}) || byScore(a, b)};
-  return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(sorters[state.listSort]);
+  return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(songSorter(state.listSort));
 }
 const LIST_PAGE = 40;
 let listObserver = null;
@@ -836,13 +871,12 @@ function viewLevels(){
   <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
     <label class="field" style="flex:1 1 320px"><span class="sr-only">Search levels</span>${ICON.search}<input id="lvQ" type="search" placeholder="Search by name, ID, creator, verifier…" value="${esc(state.lvQ)}" autocomplete="off"></label>
     <label><span class="sr-only">Difficulty</span><select class="select" id="lvDiff"><option value="all">All difficulties</option>${DIFF_ORDER.map(d => `<option${state.lvDiff === d ? " selected" : ""}>${d}</option>`).join("")}</select></label>
-    <label><span class="sr-only">Sort levels</span><select class="select" id="lvSort">${[["name","A–Z"],["diff","Hardest"],["newest","Newest"],["stars","Most stars"]].map(([v,l]) => `<option value="${v}"${state.lvSort === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+    ${sortSelect("lvSort", LEVEL_SORTS, state.lvSort, "Sort levels")}
     <a class="btn" href="#request">${ICON.plus} Request a level</a>
   </div></div><div id="lvBody"></div>`;
 }
 function renderLevelsBody(){
-  const s = {name:(a,b) => a.name.localeCompare(b.name), diff:(a,b) => DIFF_ORDER.indexOf(b.difficulty) - DIFF_ORDER.indexOf(a.difficulty) || (b.stars || 0) - (a.stars || 0),
-             newest:(a,b) => String(b.created_at).localeCompare(String(a.created_at)), stars:(a,b) => (b.stars || 0) - (a.stars || 0)}[state.lvSort];
+  const s = levelSorter(state.lvSort);
   const list = DB.levels.filter(l => (state.lvDiff === "all" || l.difficulty === state.lvDiff) && matches(levelHay(l), state.lvQ)).sort(s);
   $("#lvBody").innerHTML = list.length ? `<div class="grid">${list.map(l => levelCard(l, state.lvQ)).join("")}</div>`
     : `<div class="table">${emptyState(DB.levels.length ? "No levels match" : "No levels yet", DB.levels.length ? "Try another name, ID or difficulty." : "Request one to get started.")}</div>`;
@@ -1241,13 +1275,15 @@ function viewAuthors(){
   return `${dataNotice()}<section class="hero single"><div><h1>Authors</h1><p class="lead">Everyone who made a song, mashup, cover or remix on GDSR. Pick one to see all their songs.</p></div></section>
   <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
     <label class="field" style="flex:1 1 320px"><span class="sr-only">Search authors</span>${ICON.search}<input id="auQ" type="search" placeholder="Search authors…" value="${esc(state.auQ || "")}" autocomplete="off"></label>
-    <label><span class="sr-only">Sort authors</span><select class="select" id="auSort">${[["songs","Most songs"],["score","Top average score"],["votes","Most votes"],["name","A–Z"]].map(([v, l]) => `<option value="${v}"${(state.auSort || "songs") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label><span class="sr-only">Sort authors</span><select class="select" id="auSort">${[["songs","Most songs"],["songsLow","Fewest songs"],["score","Top average score"],["scoreLow","Lowest average score"],["votes","Most votes"],["name","A–Z"],["nameZ","Z–A"]].map(([v, l]) => `<option value="${v}"${(state.auSort || "songs") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
   </div></div><div id="auBody"></div>`;
 }
 function renderAuthorsBody(){
   const q = state.auQ || "", sort = state.auSort || "songs";
   const cmp = {songs:(a, b) => b.songs.length - a.songs.length || a.name.localeCompare(b.name), name:(a, b) => a.name.localeCompare(b.name, undefined, {sensitivity:"base"}),
-    score:(a, b) => { const x = authorStats(a).avg, y = authorStats(b).avg; return (y ?? -1) - (x ?? -1); }, votes:(a, b) => authorStats(b).votes - authorStats(a).votes}[sort];
+    score:(a, b) => { const x = authorStats(a).avg, y = authorStats(b).avg; return (y ?? -1) - (x ?? -1); }, votes:(a, b) => authorStats(b).votes - authorStats(a).votes,
+    songsLow:(a, b) => a.songs.length - b.songs.length || a.name.localeCompare(b.name), nameZ:(a, b) => b.name.localeCompare(a.name, undefined, {sensitivity:"base"}),
+    scoreLow:byNum(a => authorStats(a).avg, 1)}[sort] || ((a, b) => b.songs.length - a.songs.length);
   const list = AUTH.list.filter(a => matches(a.name, q)).sort(cmp);
   $("#auBody").innerHTML = list.length ? `<div class="grid">${list.map(a => authorCard(a, q)).join("")}</div>`
     : `<div class="table">${emptyState(AUTH.list.length ? "No authors match" : "No authors yet", AUTH.list.length ? "Try part of a name." : "Authors appear once songs are added.")}</div>`;
@@ -1275,7 +1311,7 @@ function viewAuthor(a){
   <section class="section">
     <div class="section-head"><div><h2>Songs by ${esc(a.name)}</h2><p class="muted small">Ranked by score.</p></div></div>
     <div class="toolbar">${chips("auChips", typeOptions(songs), state.auType || "all")}
-      <div class="toolbar-right"><label><span class="sr-only">Sort</span><select class="select" id="auSongSort">${[["score","Top score"],["votes","Most votes"],["newest","Newest"],["name","A–Z"]].map(([v, l]) => `<option value="${v}"${(state.auSongSort || "score") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label></div></div>
+      <div class="toolbar-right">${sortSelect("auSongSort", SONG_SORTS, state.auSongSort || "score", "Sort")}</div></div>
     <div class="table" id="auSongs"></div>
   </section>
   ${a.featured.length ? `<section class="section"><div class="section-head"><div><h2>Featured in mashups</h2><p class="muted small">Mashups made by others that use a song by ${esc(a.name)}.</p></div></div><div class="table compact" id="auFeat">${a.featured.slice().sort(byScore).map((s, i) => songRow(s, i + 1, "")).join("")}</div></section>` : ""}
@@ -1283,7 +1319,7 @@ function viewAuthor(a){
 }
 function authorSongsFiltered(a){
   const t = state.auType || "all", sort = state.auSongSort || "score";
-  const cmp = {score:byScore, votes:(x, y) => voteCount(y) - voteCount(x), newest:(x, y) => String(y.created_at).localeCompare(String(x.created_at)), name:(x, y) => x.name.localeCompare(y.name)}[sort];
+  const cmp = songSorter(sort);
   return a.songs.filter(s => t === "all" || s.type === t).sort(cmp);
 }
 function renderAuthorSongs(a){
