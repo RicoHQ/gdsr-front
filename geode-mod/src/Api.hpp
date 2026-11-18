@@ -4,6 +4,7 @@
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
 #include <matjson.hpp>
+#include <filesystem>
 
 namespace gdsr {
     struct Session {
@@ -35,6 +36,9 @@ namespace gdsr {
 
     // uploads to the private audio bucket, returns the object path that the site stores in audio_file
     arc::Future<geode::Result<std::string>> uploadAudio(std::string objectPath, geode::ByteVector data, std::string mime);
+
+    // signs the object (the bucket is private) and downloads it to dest
+    arc::Future<geode::Result<>> downloadAudio(std::string objectPath, std::filesystem::path dest);
 
     std::string urlEncode(std::string_view s);
 }

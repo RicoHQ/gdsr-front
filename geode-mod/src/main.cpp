@@ -1,7 +1,10 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/LevelInfoLayer.hpp>
+#include <Geode/modify/MenuLayer.hpp>
 #include "Api.hpp"
 #include "ui/SubmitPopup.hpp"
+#include "ui/HubPopup.hpp"
+#include "Player.hpp"
 
 using namespace geode::prelude;
 
@@ -39,5 +42,35 @@ class $modify(GDSRLevelInfoLayer, LevelInfoLayer) {
         std::string exact;
         if (m_exactLengthLabel) exact = m_exactLengthLabel->getString();
         if (auto popup = gdsr::SubmitPopup::create(m_level, exact)) popup->show();
+    }
+};
+
+class $modify(GDSRMenuLayer, MenuLayer) {
+    bool init() {
+        if (!MenuLayer::init()) return false;
+        if (!Mod::get()->getSettingValue<bool>("show-menu-button")) return true;
+
+        auto spr = CCSprite::create("side_btn.png"_spr);
+        if (!spr) return true;
+        spr->setScale(40.f / spr->getContentSize().width);
+        auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(GDSRMenuLayer::onGDSRHub));
+        btn->setID("gdsr-hub-button"_spr);
+
+        if (auto menu = this->getChildByID("bottom-menu")) {
+            menu->addChild(btn);
+            menu->updateLayout();
+        } else {
+            auto winSize = CCDirector::get()->getWinSize();
+            auto ownMenu = CCMenu::create();
+            ownMenu->setID("gdsr-menu"_spr);
+            ownMenu->setPosition({ winSize.width - 30.f, 30.f });
+            ownMenu->addChild(btn);
+            this->addChild(ownMenu, 10);
+        }
+        return true;
+    }
+
+    void onGDSRHub(CCObject*) {
+        if (auto popup = gdsr::HubPopup::create(0)) popup->show();
     }
 };

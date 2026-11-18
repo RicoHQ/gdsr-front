@@ -214,4 +214,41 @@ arc::Future<Result<std::string>> uploadAudio(std::string objectPath, ByteVector 
     co_return Ok(objectPath);
 }
 
+static std::string encodePath(std::string const& path) {
+    std::string out;
+    size_t start = 0;
+    while (true) {
+        auto slash = path.find('/', start);
+        out += urlEncode(path.substr(start, slash == std::string::npos ? std::string::npos : slash - start));
+        if (slash == std::string::npos) break;
+        out += '/';
+        start = slash + 1;
+    }
+    return out;
+}
+
+arc::Future<Result<>> downloadAudio(std::string objectPath, std::filesystem::path dest) {
+    if (signedIn()) (void)co_await ensureSession();
+    auto req = request(true);
+    req.header("Content-Type", "application/json");
+    req.bodyJSON(matjson::makeObject({ {"expiresIn", 3600} }));
+    auto res = co_await req.post(fmt::format("{}/storage/v1/object/sign/{}/{}", SUPABASE_URL, AUDIO_BUCKET, encodePath(objectPath)));
+    if (!res.ok()) co_return Err(errorText(res));
+    auto json = res.json();
+    if (!json) co_return Err("Unexpected storage response.");
+    auto signedUrl = json.unwrap()["signedURL"].asString().unwrapOr("");
+    if (signedUrl.empty()) co_return Err("The audio file couldn't be signed.");
+    if (signedUrl.rfind("http", 0) != 0) signedUrl = fmt::format("{}/storage/v1{}", SUPABASE_URL, signedUrl);
+
+    web::WebRequest get;
+    get.timeout(std::chrono::seconds(180));
+    auto file = co_await get.get(signedUrl);
+    if (!file.ok()) co_return Err(errorText(file));
+    std::error_code ec;
+    std::filesystem::create_directories(dest.parent_path(), ec);
+    auto saved = file.into(dest);
+    if (!saved) co_return Err("Couldn't save the audio: " + saved.unwrapErr());
+    co_return Ok();
+}
+
 }
