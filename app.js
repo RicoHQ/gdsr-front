@@ -7,6 +7,7 @@
 const CONFIG = {
   SUPABASE_URL: "https://c--d7a6c76f-dfcc-4caa-a390-36c8a5e7cafa-prod.lovable.cloud",
   SUPABASE_KEY: "sb_publishable_2Vl-Rwf1mxy8san0hTPeoQ_t5WUv1WV",   // publishable key: safe in front-end code; RLS protects data
+  MOD_URL: "https://github.com/RicoHQ/gdsr-front/releases/download/geode-mod/ricohq.gdsr.geode",
   AUDIO_BUCKET: "audio",
   BUCKET: 2,                       // seconds per bar in the favourite-part graph
   MAX_AUDIO_MB: 20
@@ -1659,7 +1660,12 @@ function viewRequest(kind){
         : `<div class="row2">${fieldHtml(fields[0])}${fieldHtml(fields[1])}</div><div class="row2">${fieldHtml(fields[2])}${fieldHtml(fields[3])}</div><div class="row2">${fieldHtml(fields[4])}${fieldHtml(fields[5])}</div><div class="row2">${fieldHtml(fields[6])}${fieldHtml(fields[7])}</div>`}
       <p class="msg" id="reqMsg" hidden></p>
       <button class="btn primary" type="submit">Submit request</button>
-    </form></div></div>`;
+    </form></div>
+    <a class="card card-pad mod-cta" href="${CONFIG.MOD_URL}" rel="noopener">
+      <span class="mod-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.4"/><rect x="12.5" y="12.5" width="7" height="7" rx="1" fill="currentColor"/></svg></span>
+      <span class="grow"><b>Request from inside the game</b><span>Get the GDSR Geode mod. A button on every level page sends the level and its song, including your Jukebox song. Works on Windows and Android.</span></span>
+      <span class="btn sm">${ICON.ext} Download</span>
+    </a></div>`;
 }
 function mountRequest(kind){
   if (!ME.user) return;
