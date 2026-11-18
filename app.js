@@ -2167,7 +2167,8 @@ const GUESS_LEVELS = [
   {k:"normal",  label:"Normal",  clip:4,   mult:1.5},
   {k:"hard",    label:"Hard",    clip:2,   mult:2},
   {k:"insane",  label:"Insane",  clip:1,   mult:3},
-  {k:"extreme", label:"Extreme", clip:0.5, mult:4}
+  {k:"extreme", label:"Extreme", clip:0.5, mult:4},
+  {k:"extremeplus", label:"Extreme+", clip:0.2, mult:5}
 ];
 const GUESS_DEFAULT = {types:TYPES.slice(), start:"start", diffs:[], level:"normal", rounds:10};
 const G = { cfg:Object.assign({}, GUESS_DEFAULT, store.get("guessCfg", {})), audio:new Audio(), phase:"setup", rounds:[], i:0, score:0, streak:0, best:0, stopT:0, token:0 };
@@ -2203,7 +2204,7 @@ function renderGuessSetup(){
     <div class="g-row"><div class="g-lab"><b>Level difficulty</b><span>Only songs used by levels of these difficulties. None picked means any song.</span></div>
       <div class="chips wrap">${chip("diff", "", "Any", !c.diffs.length)}${usedDiffs.map(d => chip("diff", d, d, c.diffs.includes(d))).join("")}</div></div>
     <div class="g-row"><div class="g-lab"><b>Game difficulty</b><span>Sets how long each clip is.</span></div>
-      <div class="g-levels">${GUESS_LEVELS.map(l => `<button type="button" class="g-level" data-level="${l.k}" aria-pressed="${l.k === c.level}"><b>${l.label}</b><span class="mono">${l.clip < 1 ? l.clip * 1000 + " ms" : l.clip + " s"}</span><small>×${l.mult} points</small></button>`).join("")}</div></div>
+      <div class="g-levels">${GUESS_LEVELS.map(l => `<button type="button" class="g-level" data-level="${l.k}" aria-pressed="${l.k === c.level}"><b>${l.label}</b><span class="mono">${l.clip < 1 ? Math.round(l.clip * 1000) + " ms" : l.clip + " s"}</span><small>×${l.mult} points</small></button>`).join("")}</div></div>
     <div class="g-row"><div class="g-lab"><b>Rounds</b></div>
       <div class="chips">${[5, 10, 15, 20].map(n => chip("rounds", n, n, c.rounds === n)).join("")}</div></div>
     <div class="g-start"><span class="muted small" id="gPool"></span><button class="btn primary lg" type="button" id="gGo">${ICON.play} Start game</button></div>
@@ -2248,7 +2249,7 @@ function renderGuessRound(){
   const box = $("#guessBox"); if (!box) return;
   const r = G.rounds[G.i], lvl = guessLevel(), done = r.pick !== null;
   box.innerHTML = `<div class="card guess-play">
-    <div class="g-hud"><span>Round <b>${G.i + 1}</b>/${G.rounds.length}</span><span>Score <b class="mono" id="gScore">${G.score}</b></span><span>Streak <b>${G.streak}</b></span><span class="pill">${lvl.label} · ${lvl.clip < 1 ? lvl.clip * 1000 + "ms" : lvl.clip + "s"}</span></div>
+    <div class="g-hud"><span>Round <b>${G.i + 1}</b>/${G.rounds.length}</span><span>Score <b class="mono" id="gScore">${G.score}</b></span><span>Streak <b>${G.streak}</b></span><span class="pill">${lvl.label} · ${lvl.clip < 1 ? Math.round(lvl.clip * 1000) + "ms" : lvl.clip + "s"}</span></div>
     <div class="g-stage">
       <button class="g-play" type="button" id="gPlay" aria-label="Play clip">${ICON.play}<svg class="g-ring" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/><circle id="gRing" cx="60" cy="60" r="54"/></svg></button>
       <p class="muted small" id="gHint">${done ? "" : r.plays ? `Played ${r.plays}× · ${3 - r.plays} replay${3 - r.plays === 1 ? "" : "s"} left` : "Press play (or Space) to hear the clip"}</p>

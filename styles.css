@@ -814,7 +814,7 @@ body.standalone .tabbar{padding-bottom:env(safe-area-inset-bottom)}
 .g-row{display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:start;padding-bottom:18px;border-bottom:1px solid var(--border)}
 .g-lab{display:grid;gap:3px}.g-lab b{font-size:14px}.g-lab span{font-size:12.5px;color:var(--faint);line-height:1.4}
 .chips.wrap{flex-wrap:wrap!important;overflow:visible}
-.g-levels{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.g-levels{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
 .g-level{display:grid;gap:2px;justify-items:center;padding:10px 6px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--muted);transition:all .15s}
 .g-level b{font-size:13.5px;color:var(--text)}.g-level .mono{font-size:15px;color:var(--accent-strong);font-weight:600}.g-level small{font-size:11px;color:var(--faint)}
 .g-level:hover{border-color:var(--border2)}
