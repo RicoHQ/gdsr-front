@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="GDSR">
-<link rel="stylesheet" href="styles.css?v=17">
+<link rel="stylesheet" href="styles.css?v=18">
 </head>
 <body>
 <header class="hdr">
@@ -25,7 +25,13 @@
     <nav class="nav" aria-label="Main">
       <a href="#list" data-nav="list">The List</a>
       <a href="#levels" data-nav="levels">Levels</a>
-      <a href="#authors" data-nav="authors">Authors</a>
+      <div class="nav-dd">
+        <a href="#authors" data-nav="authors" aria-haspopup="true">Authors<svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></a>
+        <div class="nav-menu" role="menu">
+          <a href="#authors" role="menuitem"><b>All authors</b><small>Browse everyone on GDSR</small></a>
+          <a href="#authors-ranking" role="menuitem"><b>Author ranking</b><small>Ranked by average score</small></a>
+        </div>
+      </div>
       <a href="#playlists" data-nav="playlists">Playlists</a>
       <a href="#guess" data-nav="guess">Guess</a>
       <a href="#request" data-nav="request">Request</a>
@@ -73,6 +79,6 @@
 <div id="modalRoot"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

@@ -1271,8 +1271,10 @@ function authorCard(a, q){
     ${st.top ? `<p class="small muted" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Top: <span style="color:var(--text)">${esc(st.top.name)}</span></p>` : ""}
   </a>`;
 }
+const authorsSwitch = cur => `<nav class="subnav" aria-label="Authors views"><a href="#authors"${cur === "all" ? ' aria-current="page"' : ""}>All authors</a><a href="#authors-ranking"${cur === "rank" ? ' aria-current="page"' : ""}>Ranking</a></nav>`;
 function viewAuthors(){
   return `${dataNotice()}<section class="hero single"><div><h1>Authors</h1><p class="lead">Everyone who made a song, mashup, cover or remix on GDSR. Pick one to see all their songs.</p></div></section>
+  ${authorsSwitch("all")}
   <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
     <label class="field" style="flex:1 1 320px"><span class="sr-only">Search authors</span>${ICON.search}<input id="auQ" type="search" placeholder="Search authors…" value="${esc(state.auQ || "")}" autocomplete="off"></label>
     <label><span class="sr-only">Sort authors</span><select class="select" id="auSort">${[["songs","Most songs"],["songsLow","Fewest songs"],["score","Top average score"],["scoreLow","Lowest average score"],["votes","Most votes"],["name","A–Z"],["nameZ","Z–A"]].map(([v, l]) => `<option value="${v}"${(state.auSort || "songs") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -2220,6 +2222,45 @@ async function admStorage(main){
 }
 
 /* =====================================================================
+   VIEW: AUTHOR RANKING (by average score)
+   ===================================================================== */
+function viewAuthorRanking(){
+  const mins = [1, 2, 3, 5];
+  return `${dataNotice()}<section class="hero single"><div><h1>Author ranking</h1><p class="lead">Authors ranked by the average score of their songs. Mashups count for the person who made the mashup.</p></div></section>
+  ${authorsSwitch("rank")}
+  <div class="toolbar">
+    <div class="chips" id="arMin" role="group" aria-label="Minimum songs">${mins.map(n => `<button class="chip" type="button" data-v="${n}" aria-pressed="${(state.arMin || 1) === n}">${n === 1 ? "Everyone" : `${n}+ songs`}</button>`).join("")}</div>
+    <div class="toolbar-right"><label class="field"><span class="sr-only">Find an author</span>${ICON.search}<input id="arQ" type="search" placeholder="Find an author…" value="${esc(state.arQ || "")}" autocomplete="off"></label></div>
+  </div>
+  <div class="table" id="arBody"></div>`;
+}
+function authorRanked(){
+  const min = state.arMin || 1;
+  return AUTH.list.map(a => ({a, st:authorStats(a)}))
+    .filter(x => x.st.avg !== null && x.a.songs.length >= min)
+    .sort((x, y) => y.st.avg - x.st.avg || y.st.votes - x.st.votes || y.st.count - x.st.count || x.a.name.localeCompare(y.a.name));
+}
+function renderAuthorRanking(){
+  const all = authorRanked(), q = state.arQ || "", el = $("#arBody");
+  const list = all.map((x, i) => ({...x, rank:i + 1})).filter(x => matches(x.a.name, q));
+  const unscored = AUTH.list.filter(a => authorStats(a).avg === null).length;
+  if (!list.length){ el.innerHTML = emptyState(all.length ? "No authors match" : "No ranked authors yet", all.length ? "Try part of a name." : "Authors appear here once their songs have a score."); return; }
+  el.innerHTML = `<div class="ar-head"><span>#</span><span>Author</span><span>Average score</span><span class="ar-n">Songs</span><span class="ar-n">Votes</span><span class="ar-top">Best song</span></div>`
+    + list.map(({a, st, rank}) => { const c = scoreColor(st.avg);
+      return `<div class="ar-row"><span class="rank${rank <= 3 ? ` top r${rank}` : ""}">${rank}</span>
+        <a class="ar-name" href="#author-${a.slug}"><span class="avatar-md">${esc(a.name.slice(0, 1).toUpperCase())}</span><b>${hl(a.name, q)}</b></a>
+        <span class="score ar-score"><span class="bar"><i style="width:${st.avg}%;background:${c}"></i></span><span class="num" style="color:${c}">${fmt(st.avg)}</span></span>
+        <span class="ar-n ar-songs mono">${st.count}<span class="ar-unit"> song${st.count === 1 ? "" : "s"}</span></span><span class="ar-n ar-votes mono">${compact(st.votes)}</span>
+        <span class="ar-top">${st.top ? `<a class="link" href="#song-${st.top.id}">${esc(st.top.name)}</a>` : "—"}</span></div>`; }).join("")
+    + (unscored ? `<p class="small muted ar-note">${unscored} author${unscored === 1 ? " has" : "s have"} no scored songs yet and ${unscored === 1 ? "isn't" : "aren't"} ranked.</p>` : "");
+}
+function mountAuthorRanking(){
+  renderAuthorRanking();
+  bindChips($("#arMin"), v => { state.arMin = +v; renderAuthorRanking(); });
+  $("#arQ").addEventListener("input", e => { state.arQ = e.target.value; renderAuthorRanking(); });
+}
+
+/* =====================================================================
    VIEW: GUESS THE SONG (mini game)
    ===================================================================== */
 const GUESS_LEVELS = [
@@ -2397,6 +2438,7 @@ function route(){
   if (!h || h === "list") return {name:"list"};
   if (["levels","authors","search","login","signup","account","playlists","request","request-song","guess"].includes(h)) return {name:h};
   if ((m = h.match(/^author-([\w-]+)$/))) return {name:"author", id:m[1]};
+  if (h === "authors-ranking") return {name:"authors-ranking"};
   if (h === "settings") return {name:"settings", id:""};
   if ((m = h.match(/^settings-([a-z]+)$/))) return {name:"settings", id:m[1]};
   if (h === "admin") return {name:"admin", id:"overview"};
@@ -2407,13 +2449,13 @@ function route(){
   if (/^(access_token|error)=/.test(h)) return {name:"list"};   // auth redirect fragments
   return {name:"404"};
 }
-const NEEDS_DATA = new Set(["guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
+const NEEDS_DATA = new Set(["authors-ranking","guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
   if (listObserver){ listObserver.disconnect(); listObserver = null; }
   document.body.dataset.route = r.name;
   if (r.name === "search" && matchMedia("(max-width:760px)").matches && !state.searchQ) setTimeout(() => hq.focus(), 50);
-  $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || (r.name === "author" && a.dataset.nav === "authors") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
+  $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || ((r.name === "author" || r.name === "authors-ranking") && a.dataset.nav === "authors") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
   if (r.name !== "search" && document.activeElement !== hq) hq.value = "";
   $("#queue").classList.remove("on"); toggleMenu(false); toggleSpeed(false);
   if (NEEDS_DATA.has(r.name) && !DB.loaded){ app.innerHTML = skeleton(8); return; }
@@ -2423,6 +2465,7 @@ function render(opts = {}){
     case "list": app.innerHTML = viewList(); mountList(); break;
     case "levels": title = "Levels"; app.innerHTML = viewLevels(); mountLevels(); break;
     case "authors": title = "Authors"; app.innerHTML = viewAuthors(); mountAuthors(); break;
+    case "authors-ranking": title = "Author ranking"; app.innerHTML = viewAuthorRanking(); mountAuthorRanking(); break;
     case "author": { const a = AUTH.bySlug[r.id]; if (!a){ notFound(); title = "Not found"; break; } title = a.name; app.innerHTML = viewAuthor(a); mountAuthor(a); break; }
     case "search": title = "Search"; hq.value = state.searchQ; app.innerHTML = viewSearch(); mountSearch(); break;
     case "level": { const lv = DB.levelById[r.id]; if (!lv){ notFound(); title = "Not found"; break; } title = lv.name; app.innerHTML = viewLevel(lv); mountLevel(lv); break; }
@@ -2442,6 +2485,10 @@ function render(opts = {}){
 }
 function notFound(){ app.innerHTML = `<div class="table">${emptyState("Page not found", "That page doesn't exist or was removed.")}</div><p style="text-align:center;margin-top:16px"><a class="btn" href="#list">Back to The List</a></p>`; }
 window.addEventListener("hashchange", () => render());
+$$(".nav-dd").forEach(dd => {
+  $$(".nav-menu a", dd).forEach(a => a.addEventListener("click", () => { dd.classList.add("shut"); if (document.activeElement) document.activeElement.blur(); }));
+  dd.addEventListener("mouseleave", () => dd.classList.remove("shut"));
+});
 
 /* global search */
 hq.addEventListener("input", () => { state.searchQ = hq.value; if (route().name === "search") renderSearch(); else if (hq.value.trim()) location.hash = "search"; });
