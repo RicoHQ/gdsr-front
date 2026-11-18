@@ -8,14 +8,19 @@
 	},
 	"id": "ricohq.gdsr",
 	"name": "GDSR",
-	"version": "v1.0.0",
+	"version": "v1.1.0",
 	"developer": "RicoHQ",
-	"description": "Request or add songs and levels to GDSR straight from the level page",
+	"description": "Browse, play and rate GDSR songs, review requests, play Guess the Song, and add songs and levels from the level page",
 	"repository": "https://github.com/RicoHQ/gdsr-front",
 	"links": {
 		"homepage": "https://ricohq.github.io/gdsr-front/"
 	},
-	"tags": ["music", "online", "utility", "interface"],
+	"tags": [
+		"music",
+		"online",
+		"utility",
+		"interface"
+	],
 	"resources": {
 		"sprites": [
 			"resources/*.png"
@@ -33,6 +38,25 @@
 			"description": "If you picked a song for a level with Jukebox, upload that song instead of the original one.",
 			"type": "bool",
 			"default": true
+		},
+		"show-menu-button": {
+			"name": "Show GDSR in the main menu",
+			"description": "Adds a GDSR button to the bottom row of the main menu.",
+			"type": "bool",
+			"default": true
+		},
+		"player-volume": {
+			"name": "Player volume",
+			"description": "Volume for songs played by GDSR (the menu music pauses while they play).",
+			"type": "int",
+			"default": 80,
+			"min": 0,
+			"max": 100,
+			"control": {
+				"slider": true,
+				"input": true,
+				"arrows": false
+			}
 		}
 	}
 }
