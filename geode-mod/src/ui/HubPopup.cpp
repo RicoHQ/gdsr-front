@@ -2,6 +2,7 @@
 #include "SongPopup.hpp"
 #include "GuessPopup.hpp"
 #include "LoginPopup.hpp"
+#include "AfkPopup.hpp"
 #include "Theme.hpp"
 #include "../Player.hpp"
 #include "../Config.hpp"
@@ -52,15 +53,17 @@ void HubPopup::update(float) {
     if (!m_scroll) return;
     auto origin = m_scroll->convertToWorldSpace({ 0, 0 });
     auto top = m_scroll->convertToWorldSpace({ 0, m_scroll->getContentSize().height });
-    for (auto child : CCArrayExt<CCNode*>(m_scroll->m_contentLayer->getChildren())) {
-        auto menu = typeinfo_cast<CCMenu*>(child);
-        if (!menu) continue;
-        for (auto item : CCArrayExt<CCNode*>(menu->getChildren())) {
-            auto btn = typeinfo_cast<CCMenuItem*>(item);
-            if (!btn) continue;
-            auto p = menu->convertToWorldSpace(item->getPosition());
-            bool inside = p.y > origin.y + 2.f && p.y < top.y - 2.f;
-            if (btn->isEnabled() != inside && btn->getUserObject("gdsr-off") == nullptr) btn->setEnabled(inside);
+    for (auto row : CCArrayExt<CCNode*>(m_scroll->m_contentLayer->getChildren())) {
+        for (auto child : CCArrayExt<CCNode*>(row->getChildren())) {
+            auto menu = typeinfo_cast<CCMenu*>(child);
+            if (!menu) continue;
+            for (auto item : CCArrayExt<CCNode*>(menu->getChildren())) {
+                auto btn = typeinfo_cast<CCMenuItem*>(item);
+                if (!btn || btn->getUserObject("gdsr-off")) continue;
+                auto p = menu->convertToWorldSpace(item->getPosition());
+                bool inside = p.y > origin.y + 2.f && p.y < top.y - 2.f;
+                if (btn->isEnabled() != inside) btn->setEnabled(inside);
+            }
         }
     }
 }
@@ -224,11 +227,33 @@ void HubPopup::showTab(Tab tab) {
 CCNode* HubPopup::makeScroll(float height, float contentHeight) {
     m_scroll = ScrollLayer::create(CCSize{ ROW_W, height });
     m_scroll->setPosition({ 16.f, CONTENT_BOTTOM });
+    // a drag that starts on a row scrolls the list instead of tapping the row
+    m_scroll->setStealingTouches(true);
+    m_scroll->setCancelTouchLimit(6.f);
     float total = std::max(height, contentHeight);
     m_scroll->m_contentLayer->setContentSize({ ROW_W, total });
     m_content->addChild(m_scroll, 1);
     m_scroll->scrollToTop();
     return m_scroll->m_contentLayer;
+}
+
+// One node per row, positioned by its bottom-left corner. Geode's scroll list
+// shows and hides the direct children of its content layer by their bounds, so
+// every row has to be its own child (with its own menu) for scrolling to work.
+static CCNode* makeRow(CCNode* layer, float y, float height, CCMenu** menuOut) {
+    auto row = CCNode::create();
+    row->setContentSize({ ROW_W, height });
+    row->setAnchorPoint({ 0.f, 0.f });
+    row->ignoreAnchorPointForPosition(false);
+    row->setPosition({ 0.f, y - height / 2 });
+    layer->addChild(row);
+    auto menu = CCMenu::create();
+    menu->setPosition({ 0.f, 0.f });
+    menu->setContentSize({ ROW_W, height });
+    menu->ignoreAnchorPointForPosition(true);
+    row->addChild(menu, 2);
+    *menuOut = menu;
+    return row;
 }
 
 // ---------------------------------------------------------------- songs
@@ -254,15 +279,15 @@ void HubPopup::buildSongs() {
     float viewH = CONTENT_TOP - 24.f - CONTENT_BOTTOM;
     auto layer = makeScroll(viewH, list.size() * (rowH + gap));
     float total = layer->getContentSize().height;
-    auto menu = CCMenu::create();
-    menu->setPosition({ 0, 0 });
-    layer->addChild(menu);
 
     auto playing = Player::get()->active() ? Player::get()->id() : std::string();
     for (size_t i = 0; i < list.size(); i++) {
         auto s = list[i];
-        float y = total - i * (rowH + gap) - rowH / 2;
+        float yc = total - i * (rowH + gap) - rowH / 2;
         bool isPlaying = playing == s->id;
+        CCMenu* menu = nullptr;
+        auto rowNode = makeRow(layer, yc, rowH, &menu);
+        float y = rowH / 2;
 
         auto node = CCNode::create();
         node->setContentSize({ ROW_W - 40.f, rowH });
@@ -308,6 +333,7 @@ void HubPopup::buildSongs() {
         play->setPosition({ ROW_W - 16.f, y });
         if (s->audioFile.empty()) { ui::setEnabled(play, false); play->setUserObject("gdsr-off", CCBool::create(true)); }
         menu->addChild(play);
+        (void)rowNode;
     }
 }
 
@@ -415,6 +441,9 @@ void HubPopup::buildRequests() {
         auto btn = ui::button(m_showMine ? "Review queue" : "My requests", ui::Style::Dark, 90.f, 18.f, this, menu_selector(HubPopup::onToggleMine), .3f);
         btn->setPosition({ W - 16.f - 45.f, CONTENT_TOP - 10.f });
         m_contentMenu->addChild(btn);
+        auto afk = ui::button("AFK Admin", ui::Style::Primary, 84.f, 18.f, this, menu_selector(HubPopup::onAfk), .3f);
+        afk->setPosition({ W - 16.f - 90.f - 6.f - 42.f, CONTENT_TOP - 10.f });
+        m_contentMenu->addChild(afk);
     }
 
     if (!m_requestsLoaded) { loadRequestsList(); return; }
@@ -431,32 +460,33 @@ void HubPopup::buildRequests() {
     float viewH = CONTENT_TOP - 24.f - CONTENT_BOTTOM;
     auto layer = makeScroll(viewH, m_requests.size() * (rowH + gap));
     float total = layer->getContentSize().height;
-    auto menu = CCMenu::create();
-    menu->setPosition({ 0, 0 });
-    layer->addChild(menu);
 
     for (size_t i = 0; i < m_requests.size(); i++) {
         auto const& r = m_requests[i];
-        float y = total - i * (rowH + gap) - rowH / 2;
+        float yc = total - i * (rowH + gap) - rowH / 2;
+        CCMenu* menu = nullptr;
+        auto rowNode = makeRow(layer, yc, rowH, &menu);
+        float y = rowH / 2;
+
         auto bg = ui::card({ ROW_W, rowH });
         bg->setPosition({ ROW_W / 2, y });
-        layer->addChild(bg);
+        rowNode->addChild(bg);
 
         auto kind = ui::label(r.isSong ? "SONG" : "LEVEL", "bigFont.fnt", .24f, r.isSong ? ui::ACCENT : ui::GOLD);
         kind->setAnchorPoint({ 0.f, .5f });
         kind->setPosition({ 10.f, y + 8.f });
-        layer->addChild(kind);
+        rowNode->addChild(kind);
 
         float textW = queue ? ROW_W - 190.f : ROW_W - 120.f;
         auto name = ui::fitLabel(r.name, "bigFont.fnt", .34f, ui::TEXT, textW - 36.f);
         name->setAnchorPoint({ 0.f, .5f });
         name->setPosition({ 46.f, y + 7.f });
-        layer->addChild(name);
+        rowNode->addChild(name);
 
         auto sub = ui::fitLabel(r.sub + "  -  " + r.created, "chatFont.fnt", .5f, ui::MUTED, textW);
         sub->setAnchorPoint({ 0.f, .5f });
         sub->setPosition({ 10.f, y - 8.f });
-        layer->addChild(sub);
+        rowNode->addChild(sub);
 
         if (queue) {
             if (r.isSong && !r.audioFile.empty()) {
@@ -480,12 +510,12 @@ void HubPopup::buildRequests() {
             auto st = ui::label(text, "bigFont.fnt", .3f, color);
             st->setAnchorPoint({ 1.f, .5f });
             st->setPosition({ ROW_W - 10.f, y + 6.f });
-            layer->addChild(st);
+            rowNode->addChild(st);
             if (!r.note.empty()) {
                 auto note = ui::fitLabel(r.note, "chatFont.fnt", .45f, ui::FAINT, 100.f);
                 note->setAnchorPoint({ 1.f, .5f });
                 note->setPosition({ ROW_W - 10.f, y - 8.f });
-                layer->addChild(note);
+                rowNode->addChild(note);
             }
         }
     }
@@ -505,6 +535,11 @@ void HubPopup::loadRequestsList() {
         m_requestsLoaded = true;
         if (m_tab == Tab::Requests) showTab(Tab::Requests);
     });
+}
+
+void HubPopup::onAfk(CCObject*) {
+    Ref<HubPopup> self = this;
+    if (auto popup = AfkPopup::create([self] { self->loadCatalog(false); })) popup->show();
 }
 
 void HubPopup::onToggleMine(CCObject*) {
@@ -606,9 +641,9 @@ void HubPopup::buildGuess() {
     rowLabel("GAME DIFF.", y);
     for (int i = 0; i < GUESS_LEVEL_COUNT; i++) {
         auto const& lv = GUESS_LEVELS[i];
-        auto b = ui::toggle(fmt::format("{} {}", lv.label, clipText(lv.clip)), m_guess.level == i, 62.f, 20.f, this, menu_selector(HubPopup::onGuessLevel), .24f);
+        auto b = ui::toggle(fmt::format("{} {}", lv.label, clipText(lv.clip)), m_guess.level == i, 52.f, 20.f, this, menu_selector(HubPopup::onGuessLevel), .22f);
         b->setTag(i);
-        b->setPosition({ x0 + 31.f + i * 66.f, y });
+        b->setPosition({ x0 + 26.f + i * 55.f, y });
         m_contentMenu->addChild(b);
     }
 

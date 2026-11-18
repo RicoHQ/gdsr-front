@@ -80,6 +80,7 @@ namespace gdsr {
         void onApprove(cocos2d::CCObject*);
         void onReject(cocos2d::CCObject*);
         void onToggleMine(cocos2d::CCObject*);
+        void onAfk(cocos2d::CCObject*);
         void onRefresh(cocos2d::CCObject*);
         void onSignIn(cocos2d::CCObject*);
         void onSignOut(cocos2d::CCObject*);
