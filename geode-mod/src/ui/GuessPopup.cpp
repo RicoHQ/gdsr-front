@@ -362,14 +362,14 @@ void GuessPopup::buildResults() {
     sub->setPosition({ W / 2, H - 104.f });
     m_content->addChild(sub);
 
-    auto stat = [&](std::string const& big, char const* small, float x) {
+    auto stat = [&](std::string const& value, char const* caption, float x) {
         auto card = ui::card({ 110.f, 46.f });
         card->setPosition({ x, 118.f });
         m_content->addChild(card);
-        auto b = ui::label(big, "bigFont.fnt", .48f, ui::TEXT);
+        auto b = ui::label(value, "bigFont.fnt", .48f, ui::TEXT);
         b->setPosition({ x, 124.f });
         m_content->addChild(b);
-        auto s = ui::label(small, "chatFont.fnt", .5f, ui::FAINT);
+        auto s = ui::label(caption, "chatFont.fnt", .5f, ui::FAINT);
         s->setPosition({ x, 106.f });
         m_content->addChild(s);
     };
