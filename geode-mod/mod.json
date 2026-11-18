@@ -1,0 +1,38 @@
+{
+	"geode": "5.11.2",
+	"gd": {
+		"win": "2.2091",
+		"android": "2.2081",
+		"mac": "2.2081",
+		"ios": "2.2081"
+	},
+	"id": "ricohq.gdsr",
+	"name": "GDSR",
+	"version": "v1.0.0",
+	"developer": "RicoHQ",
+	"description": "Request or add songs and levels to GDSR straight from the level page",
+	"repository": "https://github.com/RicoHQ/gdsr-front",
+	"links": {
+		"homepage": "https://ricohq.github.io/gdsr-front/"
+	},
+	"tags": ["music", "online", "utility", "interface"],
+	"resources": {
+		"sprites": [
+			"resources/*.png"
+		]
+	},
+	"settings": {
+		"show-button": {
+			"name": "Show GDSR button",
+			"description": "Show the GDSR button on level pages.",
+			"type": "bool",
+			"default": true
+		},
+		"use-jukebox": {
+			"name": "Use Jukebox songs",
+			"description": "If you picked a song for a level with Jukebox, upload that song instead of the original one.",
+			"type": "bool",
+			"default": true
+		}
+	}
+}
