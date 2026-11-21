@@ -8,7 +8,7 @@
 	},
 	"id": "ricohq.gdsr",
 	"name": "GDSR",
-	"version": "v1.3.0",
+	"version": "v1.4.0",
 	"developer": "RicoHQ",
 	"description": "Browse, play and rate GDSR songs, review requests and send levels and songs from the game",
 	"repository": "https://github.com/RicoHQ/gdsr-front",
@@ -36,6 +36,12 @@
 		"use-jukebox": {
 			"name": "Use Jukebox songs",
 			"description": "If you picked a song for a level with Jukebox, upload that song instead of the original one.",
+			"type": "bool",
+			"default": true
+		},
+		"auto-jukebox": {
+			"name": "Auto-add Jukebox songs (admins)",
+			"description": "When you open GDSR on a level page, add every Jukebox song you have for that song ID to GDSR as NONGs. Songs already on GDSR are skipped.",
 			"type": "bool",
 			"default": true
 		},
