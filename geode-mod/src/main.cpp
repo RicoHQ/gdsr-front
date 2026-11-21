@@ -1,9 +1,12 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/LevelInfoLayer.hpp>
 #include <Geode/modify/MenuLayer.hpp>
+#include <Geode/modify/LevelSearchLayer.hpp>
 #include "net/Supabase.hpp"
 #include "ui/SubmitPopup.hpp"
 #include "ui/HubPopup.hpp"
+#include "ui/ImportPopup.hpp"
+#include "features/JukeboxSync.hpp"
 #include "audio/Player.hpp"
 
 using namespace geode::prelude;
@@ -42,6 +45,8 @@ class $modify(GDSRLevelInfoLayer, LevelInfoLayer) {
         std::string exact;
         if (m_exactLengthLabel) exact = m_exactLengthLabel->getString();
         if (auto popup = gdsr::SubmitPopup::create(m_level, exact)) popup->show();
+        // admins: send this song ID's Jukebox songs to GDSR in the background
+        if (m_level->m_songID > 0) gdsr::syncJukeboxSongs(m_level->m_songID);
     }
 };
 
@@ -72,5 +77,37 @@ class $modify(GDSRMenuLayer, MenuLayer) {
 
     void onGDSRHub(CCObject*) {
         if (auto popup = gdsr::HubPopup::create(0)) popup->show();
+    }
+};
+
+class $modify(GDSRLevelSearchLayer, LevelSearchLayer) {
+    bool init(int type) {
+        if (!LevelSearchLayer::init(type)) return false;
+        if (!gdsr::signedIn() || !gdsr::session().isAdmin) return true;
+
+        auto spr = CCSprite::create("side_btn.png"_spr);
+        if (!spr) return true;
+        spr->setScale(30.f / spr->getContentSize().width);
+        auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(GDSRLevelSearchLayer::onGDSRImport));
+        btn->setID("gdsr-import-button"_spr);
+
+        if (auto menu = this->getChildByID("other-filter-menu")) {
+            menu->addChild(btn);
+            menu->updateLayout();
+        } else {
+            auto winSize = CCDirector::get()->getWinSize();
+            auto ownMenu = CCMenu::create();
+            ownMenu->setID("gdsr-menu"_spr);
+            ownMenu->setPosition({ winSize.width - 26.f, winSize.height / 2 - 60.f });
+            ownMenu->addChild(btn);
+            this->addChild(ownMenu, 10);
+        }
+        return true;
+    }
+
+    void onGDSRImport(CCObject*) {
+        std::string text;
+        if (m_searchInput) text = std::string(m_searchInput->getString());
+        if (auto popup = gdsr::ImportPopup::create(text)) popup->show();
     }
 };
