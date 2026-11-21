@@ -79,15 +79,29 @@ std::vector<Song const*> Catalog::ranked(std::string const& type) const {
     return out;
 }
 
+// The API caps a response at 1000 rows, so fetch whole tables a page at a time.
+static arc::Future<Result<Json>> restAll(std::string path) {
+    constexpr int page = 1000;
+    auto all = Json::array();
+    for (int offset = 0;; offset += page) {
+        auto res = co_await rest("GET", fmt::format("{}&limit={}&offset={}", path, page, offset));
+        if (!res) co_return Err(res.unwrapErr());
+        auto rows = res.unwrap();
+        int n = 0;
+        if (rows.isArray()) for (auto const& r : rows) { all.push(r); ++n; }
+        if (n < page) co_return Ok(std::move(all));
+    }
+}
+
 arc::Future<Result<>> loadCatalog() {
     if (signedIn()) (void)co_await ensureSession();
 
-    auto songs = co_await rest("GET", "songs?select=id,song_id,name,type,author,length,audio_file,rating,song_a,song_b,mashing_quality,song_b_name,song_b_rating&order=name.asc");
+    auto songs = co_await restAll("songs?select=id,song_id,name,type,author,length,audio_file,rating,song_a,song_b,mashing_quality,song_b_name,song_b_rating&order=name.asc,id.asc");
     if (!songs) co_return Err(songs.unwrapErr());
-    auto levels = co_await rest("GET", "levels?select=id,name,level_id,difficulty,song_id,stars&order=name.asc");
+    auto levels = co_await restAll("levels?select=id,name,level_id,difficulty,song_id,stars&order=name.asc,id.asc");
     if (!levels) co_return Err(levels.unwrapErr());
-    auto stats = co_await rest("GET", "song_vote_stats?select=song,votes,avg_score");
-    auto statsB = co_await rest("GET", "song_b_vote_stats?select=song,votes,avg_score");
+    auto stats = co_await restAll("song_vote_stats?select=song,votes,avg_score&order=song.asc");
+    auto statsB = co_await restAll("song_b_vote_stats?select=song,votes,avg_score&order=song.asc");
 
     Catalog c;
     auto rows = songs.unwrap();
