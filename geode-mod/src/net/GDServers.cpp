@@ -79,7 +79,8 @@ static std::string lengthName(long long len) {
 }
 
 static Result<std::vector<GDLevel>> parseLevels(std::string const& body) {
-    if (body.empty() || body == "-1") return Err("The Geometry Dash servers returned no levels.");
+    if (body.empty()) return Err("The Geometry Dash servers sent an empty reply.");
+    if (body == "-1") return Ok(std::vector<GDLevel>{});
     auto sections = split(body, "#");
     std::map<long long, std::string> creators;
     if (sections.size() > 1) {
@@ -120,13 +121,81 @@ static Result<std::vector<GDLevel>> parseLevels(std::string const& body) {
     return Ok(std::move(out));
 }
 
-arc::Future<Result<std::vector<GDLevel>>> fetchMostDownloaded(int page) {
+std::vector<GDSearchType> const& searchTypes() {
+    static std::vector<GDSearchType> const types = {
+        { 1, "Most downloaded" }, { 2, "Most liked" }, { 3, "Trending" }, { 4, "Recent" },
+        { 6, "Featured" }, { 7, "Magic" }, { 11, "Awarded" }, { 16, "Hall of Fame" },
+    };
+    return types;
+}
+
+static std::string joined(std::vector<int> const& v) {
+    std::string out;
+    for (auto x : v) { if (!out.empty()) out += ","; out += std::to_string(x); }
+    return out;
+}
+
+static std::vector<int> intList(matjson::Value const& v) {
+    std::vector<int> out;
+    if (v.isArray()) for (auto const& x : v) if (x.isNumber()) out.push_back(static_cast<int>(x.asInt().unwrapOr(0)));
+    return out;
+}
+
+matjson::Value GDSearch::toJson() const {
+    auto d = matjson::Value::array(), l = matjson::Value::array();
+    for (auto x : diffs) d.push(x);
+    for (auto x : lengths) l.push(x);
+    return matjson::makeObject({ {"type", type}, {"diffs", d}, {"demon", demon}, {"lengths", l}, {"starred", starred} });
+}
+
+GDSearch GDSearch::fromJson(matjson::Value const& v) {
+    GDSearch s;
+    if (!v.isObject()) return s;
+    s.type = static_cast<int>(v["type"].asInt().unwrapOr(1));
+    bool known = false;
+    for (auto const& t : searchTypes()) known |= t.id == s.type;
+    if (!known) s.type = 1;
+    s.diffs = intList(v["diffs"]);
+    s.demon = static_cast<int>(v["demon"].asInt().unwrapOr(0));
+    s.lengths = intList(v["lengths"]);
+    s.starred = v["starred"].asBool().unwrapOr(false);
+    return s;
+}
+
+std::string GDSearch::summary() const {
+    std::string out;
+    for (auto const& t : searchTypes()) if (t.id == type) out = t.name;
+    static std::map<int, char const*> const diffNames = { {-1, "N/A"}, {-3, "Auto"}, {1, "Easy"}, {2, "Normal"}, {3, "Hard"}, {4, "Harder"}, {5, "Insane"}, {-2, "Demon"} };
+    static char const* demonNames[] = { "", "Easy", "Medium", "Hard", "Insane", "Extreme" };
+    static char const* lenNames[] = { "Tiny", "Short", "Medium", "Long", "XL", "Plat." };
+    if (!diffs.empty()) {
+        std::string d;
+        for (auto x : diffs) { if (!d.empty()) d += ", "; d += diffNames.contains(x) ? diffNames.at(x) : "?"; }
+        if (diffs.size() == 1 && diffs[0] == -2 && demon >= 1 && demon <= 5) d = std::string(demonNames[demon]) + " Demon";
+        out += " · " + d;
+    }
+    if (!lengths.empty()) {
+        std::string l;
+        for (auto x : lengths) if (x >= 0 && x <= 5) { if (!l.empty()) l += ", "; l += lenNames[x]; }
+        out += " · " + l;
+    }
+    if (starred) out += " · Rated";
+    return out;
+}
+
+arc::Future<Result<std::vector<GDLevel>>> fetchLevels(GDSearch search, int page) {
+    std::string body = fmt::format("gameVersion=22&binaryVersion=45&type={}&str=&diff={}&len={}&page={}&total=0&secret=Wmfd2893gb7",
+        search.type, search.diffs.empty() ? "-" : joined(search.diffs), search.lengths.empty() ? "-" : joined(search.lengths), page);
+    if (search.diffs.size() == 1 && search.diffs[0] == -2 && search.demon >= 1 && search.demon <= 5)
+        body += fmt::format("&demonFilter={}", search.demon);
+    if (search.starred) body += "&star=1";
+
     web::WebRequest req;
     // the servers reject requests that send a user agent
     req.userAgent("");
     req.header("Content-Type", "application/x-www-form-urlencoded");
     req.header("Accept", "*/*");
-    req.bodyString(fmt::format("gameVersion=22&binaryVersion=45&type=1&str=&diff=-&len=-&page={}&total=0&secret=Wmfd2893gb7", page));
+    req.bodyString(body);
     req.timeout(std::chrono::seconds(30));
     auto res = co_await req.post("https://www.boomlings.com/database/getGJLevels21.php");
     if (!res.ok()) co_return Err(fmt::format("Geometry Dash servers: error {}", res.code()));

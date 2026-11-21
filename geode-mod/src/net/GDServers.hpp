@@ -18,6 +18,23 @@ namespace gdsr {
         std::string songUrl;         // empty for music library songs
     };
 
-    // one page (10 levels) of the "Most downloaded" search
-    arc::Future<geode::Result<std::vector<GDLevel>>> fetchMostDownloaded(int page);
+    // the level lists the game's search screen offers
+    struct GDSearchType { int id; char const* name; };
+    std::vector<GDSearchType> const& searchTypes();
+
+    // filters as the game's search screen sends them
+    struct GDSearch {
+        int type = 1;                // most downloaded
+        std::vector<int> diffs;      // -1 N/A, -3 Auto, 1-5 Easy to Insane, -2 Demon; empty = any
+        int demon = 0;               // 1-5 Easy to Extreme Demon; only used when diffs is just Demon
+        std::vector<int> lengths;    // 0-5 Tiny to Platformer; empty = any
+        bool starred = false;
+
+        matjson::Value toJson() const;
+        static GDSearch fromJson(matjson::Value const& v);
+        std::string summary() const;
+    };
+
+    // one page (10 levels). An empty list means the search has run out of pages.
+    arc::Future<geode::Result<std::vector<GDLevel>>> fetchLevels(GDSearch search, int page);
 }
