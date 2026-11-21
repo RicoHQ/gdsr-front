@@ -1032,6 +1032,7 @@ body[data-route="player"] #player{display:none}
 .np-ctrls .ib svg{width:22px;height:22px}
 .np-ctrls .ib.main{width:64px;height:64px}
 .np-ctrls .ib.main svg{width:28px;height:28px}
+.np-ctrls .ib.spd{width:auto;min-width:46px;padding:0 10px;font-size:14px;font-weight:700}
 .np-vol{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted)}
 .np-vol svg{width:18px;height:18px}
 .np-vol input{width:min(260px,60vw)}
@@ -1046,11 +1047,6 @@ body[data-route="player"] #player{display:none}
 .np-qbtn svg{width:18px;height:18px}
 .np-qbtn.on{border-color:var(--accent-line);color:var(--accent)}
 .np-stage{margin-top:44px}
-.np-speed{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 12px}
-.np-speed .chips{flex-wrap:wrap;justify-content:center}
-.np-speed input[type=range]{width:min(180px,40vw);margin:0}
-.np-speed output{min-width:42px;text-align:right}
-.np-speed .sp-pitch{display:flex;align-items:center;gap:8px}
 .np-shade{position:fixed;inset:0;background:rgba(3,8,5,.5);opacity:0;pointer-events:none;transition:opacity .3s ease;z-index:70}
 .np-shade.open{opacity:1;pointer-events:auto}
 .np-queue{position:fixed;top:0;right:0;bottom:0;width:min(400px,92vw);z-index:71;background:var(--surface);border-left:1px solid var(--border);box-shadow:-24px 0 48px -24px #000;display:flex;flex-direction:column;transform:translateX(105%);visibility:hidden;transition:transform .38s cubic-bezier(.22,.8,.24,1),visibility 0s linear .38s}

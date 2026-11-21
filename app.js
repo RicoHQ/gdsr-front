@@ -567,8 +567,7 @@ function setRate(r){
   const b = $("#plSpd"); if (b) { b.textContent = fmtRate(P.rate); b.classList.toggle("on", P.rate !== 1); }
   const sl = $("#spdRange"); if (sl){ sl.value = P.rate; sl.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); }
   const so = $("#spdOut"); if (so) so.textContent = fmtRate(P.rate);
-  const nr = $("#npRate"); if (nr){ nr.value = P.rate; nr.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); }
-  const no = $("#npRateOut"); if (no) no.textContent = fmtRate(P.rate);
+  const nb = $("#npSpd"); if (nb) { nb.textContent = fmtRate(P.rate); nb.classList.toggle("on", P.rate !== 1); }
   $$("[data-rate]").forEach(c => c.setAttribute("aria-pressed", String(+c.dataset.rate === P.rate)));
 }
 const fmtRate = r => (Math.round(r * 100) / 100).toString().replace(/^0\./, "0.") + "×";
@@ -655,16 +654,17 @@ function renderPlayer(){
     renderPlayer(); renderQueue(); };
   $("#plRep").onclick = () => { P.repeat = {off:"all", all:"one", one:"off"}[P.repeat]; store.set("repeat", P.repeat); renderPlayer(); };
   $("#plAdd").onclick = () => openAddToPlaylist(s.id);
-  $("#plSpd").onclick = e => { e.stopPropagation(); toggleSpeed(); };
+  $("#plSpd").onclick = e => { e.stopPropagation(); toggleSpeed(undefined, null); };
   $("#plQ").onclick = () => { $("#queue").classList.toggle("on"); renderQueue(); };
   const seek = $("#plSeek");
   seek.addEventListener("input", () => { const d = P.audio.duration; if (d) { P.audio.currentTime = seek.value / 1000 * d; } });
   $("#plVol").addEventListener("input", e => { P.audio.volume = e.target.value / 100; e.target.style.setProperty("--p", e.target.value + "%"); store.set("volume", P.audio.volume); });
   updateTime(); startVis();
 }
-function toggleSpeed(open){
+function toggleSpeed(open, anchor){
   const pop = $("#speedPop"); open = open === undefined ? pop.hidden : open;
   if (!open){ pop.hidden = true; return; }
+  if (anchor !== undefined) pop._anchor = anchor;
   const presets = [0.5, 0.75, 1, 1.25, 1.5, 2];
   pop.innerHTML = `<div class="sp-h"><b>Playback speed</b><output id="spdOut" class="mono">${fmtRate(P.rate)}</output></div>
     <input type="range" id="spdRange" min="0.5" max="2" step="0.05" value="${P.rate}" style="--p:${(P.rate - .5) / 1.5 * 100}%" aria-label="Playback speed">
@@ -672,6 +672,14 @@ function toggleSpeed(open){
     <label class="sp-pitch"><span>Keep original pitch</span><span class="switch"><input type="checkbox" id="spdPitch" ${PREFS.keepPitch ? "checked" : ""}><span></span></span></label>
     <p class="small faint" style="margin:0">${PREFS.keepPitch ? "Only the speed changes." : "Pitch changes with speed: faster sounds higher (nightcore), slower sounds deeper."}</p>`;
   pop.hidden = false;
+  // open above the button that was pressed; the bottom player's button keeps the default spot
+  const a = pop._anchor;
+  if (a && a.isConnected){
+    const r = a.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    const left = Math.min(innerWidth - w / 2 - 12, Math.max(w / 2 + 12, r.left + r.width / 2));
+    const top = r.top - h - 10 >= 8 ? r.top - h - 10 : r.bottom + 10;
+    pop.style.cssText = `left:${left}px;top:${top}px;bottom:auto`;
+  } else pop.style.cssText = "";
   $("#spdRange").addEventListener("input", e => setRate(+e.target.value));
   $$("[data-rate]", pop).forEach(c => c.onclick = () => setRate(+c.dataset.rate));
   $("#spdPitch").addEventListener("change", e => { setPref("keepPitch", e.target.checked); applyRate(); toggleSpeed(true); });
@@ -724,7 +732,6 @@ function renderNowPlaying(){
   document.title = `${s.name} · GDSR`;
   const oldList = $("#npQueue .npq-list"), listTop = oldList ? oldList.scrollTop : 0;
   const paused = P.audio.paused, vis = PREFS.visualizer && !PREFS.reduceMotion, vol = Math.round(P.audio.volume * 100);
-  const rates = [0.5, 0.75, 1, 1.25, 1.5, 2];
   box.innerHTML = `<button class="ib np-qbtn ${NP.queueOpen ? "on" : ""}" id="npQBtn" type="button" aria-label="Queue" aria-controls="npQueue" aria-expanded="${NP.queueOpen}" title="Queue">${ICON.list}<span>Queue</span></button>
     <div class="np-stage">${vis ? `<canvas class="np-vis" data-vis="page" data-bars="auto" aria-hidden="true"></canvas>` : `<div class="np-novis">${ICON.music}<a class="link small" href="#settings-display">Turn on the visualizer to see bars</a></div>`}</div>
     <div class="np-meta"><h1><a href="#song-${s.id}">${esc(s.name)}</a></h1><p>${authorLinks(s.author)} · ${esc(TYPE_LABEL[s.type] || "")}</p></div>
@@ -734,16 +741,10 @@ function renderNowPlaying(){
       <button class="ib" id="npPrev" type="button" aria-label="Previous">${ICON.prev}</button>
       <button class="ib main" id="npPlay" type="button" aria-label="${paused ? "Play" : "Pause"}">${paused ? ICON.play : ICON.pause}</button>
       <button class="ib" id="npNext" type="button" aria-label="Next">${ICON.next}</button>
+      <button class="ib spd ${P.rate !== 1 ? "on" : ""}" id="npSpd" type="button" aria-label="Playback speed" aria-haspopup="dialog" title="Playback speed">${fmtRate(P.rate)}</button>
       <button class="ib opt ${P.repeat !== "off" ? "on" : ""}" id="npRep" type="button" aria-label="Repeat: ${P.repeat}" title="Repeat: ${P.repeat}" style="position:relative">${ICON.repeat}${P.repeat === "one" ? "<small>1</small>" : ""}</button>
     </div>
     <div class="np-vol"><span aria-hidden="true">${ICON.vol}</span><input type="range" class="pl-vol" id="npVol" min="0" max="100" value="${vol}" style="--p:${vol}%" aria-label="Volume"></div>
-    <div class="np-speed" role="group" aria-label="Playback speed">
-      <span class="small muted">Speed</span>
-      <div class="chips">${rates.map(r => `<button class="chip" type="button" data-rate="${r}" aria-pressed="${r === P.rate}">${fmtRate(r)}</button>`).join("")}</div>
-      <input type="range" id="npRate" min="0.5" max="2" step="0.05" value="${P.rate}" style="--p:${(P.rate - .5) / 1.5 * 100}%" aria-label="Playback speed">
-      <output id="npRateOut" class="mono small">${fmtRate(P.rate)}</output>
-      <label class="sp-pitch"><span class="small muted">Keep pitch</span><span class="switch"><input type="checkbox" id="npPitch" ${PREFS.keepPitch ? "checked" : ""}><span></span></span></label>
-    </div>
     <div class="np-shade ${NP.queueOpen ? "open" : ""}" id="npShade"></div>
     <aside class="np-queue ${NP.queueOpen ? "open" : ""}" id="npQueue" aria-label="Queue" aria-hidden="${!NP.queueOpen}" ${NP.queueOpen ? "" : "inert"}>${npQueueHtml()}</aside>`;
   $("#npPlay").onclick = () => P.toggle();
@@ -753,9 +754,7 @@ function renderNowPlaying(){
   $("#npRep").onclick = () => $("#plRep") && $("#plRep").click();
   $("#npQBtn").onclick = () => setNpQueue(!NP.queueOpen);
   $("#npShade").onclick = () => setNpQueue(false);
-  $$("[data-rate]", box).forEach(c => c.onclick = () => setRate(+c.dataset.rate));
-  $("#npRate").addEventListener("input", e => setRate(+e.target.value));
-  $("#npPitch").addEventListener("change", e => { setPref("keepPitch", e.target.checked); applyRate(); });
+  $("#npSpd").onclick = e => { e.stopPropagation(); const pop = $("#speedPop"); toggleSpeed(pop.hidden || pop._anchor !== e.currentTarget, e.currentTarget); };
   mountNpQueue();
   { const l = $("#npQueue .npq-list"); if (l) l.scrollTop = listTop; }
   const seek = $("#npSeek");
@@ -2734,7 +2733,7 @@ function installRowHtml(){
   if (PWA.standalone) document.body.classList.add("standalone");
   $("#acctBtn").addEventListener("click", e => { e.stopPropagation(); toggleMenu(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && NP.queueOpen) setNpQueue(false); });
-  document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); if (!e.target.closest("#speedPop,#plSpd")) toggleSpeed(false); });
+  document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); if (!e.target.closest("#speedPop,#plSpd,#npSpd")) toggleSpeed(false); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#acctMenu").hidden){ toggleMenu(false); $("#acctBtn").focus(); } });
   $("#acctMenu").addEventListener("click", e => { if (e.target.closest("a")) toggleMenu(false); });
   renderHeader();
