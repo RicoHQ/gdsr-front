@@ -29,33 +29,41 @@ arc::Future<Result<AfkPage>> afkFetchPage(GDSearch search, int page, bool wantLe
     AfkPage out;
     out.page = page;
     out.checked = static_cast<int>(levels.size());
+    auto jobs = co_await afkJobsFor(std::move(levels), wantLevels, wantSongs, {});
+    if (!jobs) co_return Err(jobs.unwrapErr());
+    out.jobs = std::move(jobs).unwrap();
+    co_return Ok(std::move(out));
+}
 
+arc::Future<Result<std::vector<AfkJob>>> afkJobsFor(std::vector<GDLevel> levels, bool wantLevels, bool wantSongs, std::set<long long> queued) {
     std::set<long long> levelIDs, songIDs, haveLevels, haveSongs;
     for (auto const& l : levels) { levelIDs.insert(l.levelID); if (l.songID) songIDs.insert(l.songID); }
-    if (!levelIDs.empty()) {
+    // one request each for every level and song on the page
+    if (wantLevels && !levelIDs.empty()) {
         auto have = co_await rest("GET", "levels?select=level_id&level_id=in.(" + idList(levelIDs) + ")");
         if (!have) co_return Err(have.unwrapErr());
         auto rows = have.unwrap();
         if (rows.isArray()) for (auto const& r : rows) if (r["level_id"].isNumber()) haveLevels.insert(static_cast<long long>(r["level_id"].asDouble().unwrapOr(0)));
     }
-    if (!songIDs.empty()) {
+    if (wantSongs && !songIDs.empty()) {
         auto have = co_await rest("GET", "songs?select=song_id&song_id=in.(" + idList(songIDs) + ")");
         if (!have) co_return Err(have.unwrapErr());
         auto rows = have.unwrap();
         if (rows.isArray()) for (auto const& r : rows) if (r["song_id"].isNumber()) haveSongs.insert(static_cast<long long>(r["song_id"].asDouble().unwrapOr(0)));
     }
 
-    std::set<long long> songsQueued;   // two levels on one page can share a song
+    std::vector<AfkJob> jobs;
     for (auto& l : levels) {
         AfkJob job;
         job.addLevel = wantLevels && !haveLevels.contains(l.levelID);
-        job.addSong = wantSongs && l.songID && !haveSongs.contains(l.songID) && !songsQueued.contains(l.songID);
-        if (job.addSong) songsQueued.insert(l.songID);
+        // two levels can share a song
+        job.addSong = wantSongs && l.songID && !haveSongs.contains(l.songID) && !queued.contains(l.songID);
+        if (job.addSong) queued.insert(l.songID);
         if (!job.addLevel && !job.addSong) continue;
         job.level = std::move(l);
-        out.jobs.push_back(std::move(job));
+        jobs.push_back(std::move(job));
     }
-    co_return Ok(std::move(out));
+    co_return Ok(std::move(jobs));
 }
 
 static Json orNull(std::string const& s) { return s.empty() ? Json(nullptr) : Json(s); }
