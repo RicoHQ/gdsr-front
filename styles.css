@@ -989,3 +989,8 @@ h2{font-weight:650;letter-spacing:-.01em}
   .ar-row .ar-votes{display:none}
   .ar-unit{display:inline}
 }
+/* the list: type chips on one row, search + filters + sort on the next */
+.toolbar:has(#listMine){flex-wrap:wrap}
+.toolbar:has(#listMine) #listChips{flex:1 1 100%}
+.toolbar:has(#listMine) .toolbar-right{flex:1 1 100%;justify-content:flex-start}
+.toolbar:has(#listMine) .toolbar-right .field{flex:1 1 220px}

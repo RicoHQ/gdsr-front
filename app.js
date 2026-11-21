@@ -82,6 +82,17 @@ async function run(promise){
   if (res.error) throw new Error(res.error.message || String(res.error));
   return res;
 }
+// The API returns at most 1000 rows per request, so read whole tables page by page.
+// `make` must build a fresh query each call (a builder can only be awaited once).
+async function fetchAll(make, page = 1000){
+  const rows = [];
+  for (let from = 0; ; from += page){
+    const r = await run(make().range(from, from + page - 1));
+    const data = r.data || [];
+    rows.push(...data);
+    if (data.length < page) return {data: rows};
+  }
+}
 const missingRelation = err => /does not exist|could not find|schema cache|PGRST20[05]|42P01/i.test(String(err && err.message || err));
 const store = {
   get(k, d){ try { const v = localStorage.getItem("gdsr-" + k); return v === null ? d : JSON.parse(v); } catch(_){ return d; } },
@@ -208,7 +219,7 @@ const PREFS = Object.assign({}, PREF_DEFAULTS, store.get("prefs", {}));
 function setPref(k, v){ PREFS[k] = v; store.set("prefs", PREFS); applyPrefs(); }
 function applyPrefs(){ document.body.classList.toggle("compact", !!PREFS.compact); document.body.classList.toggle("reduce-motion", !!PREFS.reduceMotion); }
 const state = {
-  listType:"all", listSort:"score", listQ:"", lvQ:"", lvDiff:"all", lvSort:"name",
+  listType:"all", listSort:"score", listQ:"", listMine:"all", lvQ:"", lvDiff:"all", lvSort:"name",
   searchQ:"", searchTab:"all", levelQ:{}, levelType:{}, chartSel:{},
   admin:{}, storagePath:"", reqStatus:"pending"
 };
@@ -217,9 +228,9 @@ const app = $("#app"), hq = $("#hq");
 async function loadData(){
   try {
     const [lv, sg, si] = await Promise.all([
-      run(sb.from("levels").select("*").order("name")),
-      run(sb.from("songs").select("*")),
-      run(sb.from("song_ids").select("*").order("song_id"))
+      fetchAll(() => sb.from("levels").select("*").order("name").order("id")),
+      fetchAll(() => sb.from("songs").select("*").order("id")),
+      fetchAll(() => sb.from("song_ids").select("*").order("song_id"))
     ]);
     DB.levels = lv.data || []; DB.songs = sg.data || []; DB.songIds = si.data || [];
     DB.error = null;
@@ -233,7 +244,7 @@ async function loadData(){
 async function loadStats(){
   DB.stats = {};
   try {
-    const r = await run(sb.from("song_vote_stats").select("song,votes,avg_score"));
+    const r = await fetchAll(() => sb.from("song_vote_stats").select("song,votes,avg_score").order("song"));
     (r.data || []).forEach(x => DB.stats[x.song] = {votes:+x.votes, avg:numOrNull(x.avg_score)});
     DB.statsSource = "view";
   } catch (e){
@@ -241,7 +252,7 @@ async function loadStats(){
   }
   DB.statsB = {};
   try {
-    const r = await run(sb.from("song_b_vote_stats").select("song,votes,avg_score"));
+    const r = await fetchAll(() => sb.from("song_b_vote_stats").select("song,votes,avg_score").order("song"));
     (r.data || []).forEach(x => DB.statsB[x.song] = {votes:+x.votes, avg:numOrNull(x.avg_score)});
   } catch (_){}
 }
@@ -331,6 +342,7 @@ const levelHay = l => [l.name, l.level_id, l.song_id, l.verifier, l.creators, l.
    ===================================================================== */
 async function refreshMe(session){
   ME.user = session ? session.user : null; ME.profile = null; ME.isAdmin = false;
+  if (!ME.user) state.listMine = "all";
   if (ME.user){
     try { const r = await run(sb.from("profiles").select("*").eq("id", ME.user.id).maybeSingle()); ME.profile = r.data; } catch(_){}
     try { const r = await run(sb.rpc("has_role", {_user_id: ME.user.id, _role: "admin"})); ME.isAdmin = r.data === true; }
@@ -344,7 +356,7 @@ async function refreshMe(session){
 async function loadMarks(){
   const rated = new Set(), faved = new Set();
   if (ME.user){
-    const uid = ME.user.id, ids = (t, sink) => sb.from(t).select("song").eq("user_id", uid).limit(10000).then(r => (r.data || []).forEach(x => sink.add(x.song)), () => {});
+    const uid = ME.user.id, ids = (t, sink) => fetchAll(() => sb.from(t).select("song").eq("user_id", uid).order("song")).then(r => r.data.forEach(x => sink.add(x.song)), () => {});
     await Promise.all([ids("votes", rated), ids("song_b_votes", rated), ids("favourite_parts", faved)]);
   }
   ME.rated = rated; ME.faved = faved;
@@ -814,14 +826,23 @@ function viewList(){
     ${chips("listChips", typeOptions(DB.songs), state.listType)}
     <div class="toolbar-right">
       <label class="field"><span class="sr-only">Filter the list</span>${ICON.search}<input id="listQ" type="search" placeholder="Filter the list…" value="${esc(state.listQ)}" autocomplete="off"></label>
+      <label><span class="sr-only">Filter by your ratings</span><select class="select" id="listMine">
+        ${MINE_FILTERS.map(([v, l]) => `<option value="${v}"${state.listMine === v ? " selected" : ""}>${l}</option>`).join("")}
+      </select></label>
       ${sortSelect("listSort", SONG_SORTS, state.listSort)}
       <button class="btn" id="listPlay" type="button">${ICON.play} Play all</button>
     </div>
   </div>
   <div class="table" id="listBody"></div>`;
 }
+const MINE_FILTERS = [["all","All songs"], ["rated","Rated by me"], ["unrated","Not rated by me"], ["fav","With my favourite part"], ["nofav","Without my favourite part"]];
+function mineMatch(s){
+  if (state.listMine === "all" || !ME.user) return true;
+  const r = ME.rated && ME.rated.has(s.id), f = ME.faved && ME.faved.has(s.id);
+  return {rated:r, unrated:!r, fav:f, nofav:!f}[state.listMine] ?? true;
+}
 function listFiltered(){
-  return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && matches(songHay(s), state.listQ)).sort(songSorter(state.listSort));
+  return DB.songs.filter(s => (PREFS.showNoAudio || s.audio_file) && (state.listType === "all" || s.type === state.listType) && mineMatch(s) && matches(songHay(s), state.listQ)).sort(songSorter(state.listSort));
 }
 const LIST_PAGE = 40;
 let listObserver = null;
@@ -831,7 +852,8 @@ function renderListBody(){
   const el = $("#listBody");
   if (listObserver){ listObserver.disconnect(); listObserver = null; }
   if (!list.length){
-    el.innerHTML = emptyState(DB.songs.length ? "No songs match" : "No songs yet", DB.songs.length ? "Try a different filter or search." : "Approved songs will show up here.");
+    el.innerHTML = emptyState(DB.songs.length ? "No songs match" : "No songs yet", !DB.songs.length ? "Approved songs will show up here."
+      : state.listMine === "rated" ? "You haven't rated any songs like this yet." : state.listMine === "fav" ? "You haven't picked a favourite part on any songs like this yet." : "Try a different filter or search.");
     return;
   }
   const ids = list.map(s => s.id);
@@ -860,6 +882,10 @@ function mountList(){
   bindChips($("#listChips"), v => { state.listType = v; renderListBody(); });
   $("#listQ").addEventListener("input", e => { state.listQ = e.target.value; renderListBody(); });
   $("#listSort").addEventListener("change", e => { state.listSort = e.target.value; renderListBody(); });
+  $("#listMine").addEventListener("change", e => {
+    if (e.target.value !== "all" && !ME.user){ e.target.value = "all"; toast("Sign in to filter by the songs you rated or picked a favourite part on."); return; }
+    state.listMine = e.target.value; renderListBody();
+  });
   $("#listPlay").onclick = () => P.playList(listFiltered().map(s => s.id), 0, "The List");
 }
 
@@ -1855,7 +1881,7 @@ const ADMIN_NAV = [
 const ADM = { users:null, pending:{level:0, song:0, reports:0} };
 async function admUsers(force){
   if (ADM.users && !force) return ADM.users;
-  const [p, r] = await Promise.all([run(sb.from("profiles").select("*").order("created_at", {ascending:false})), run(sb.from("user_roles").select("*"))]);
+  const [p, r] = await Promise.all([fetchAll(() => sb.from("profiles").select("*").order("created_at", {ascending:false}).order("id")), fetchAll(() => sb.from("user_roles").select("*").order("user_id"))]);
   const roles = {}; (r.data || []).forEach(x => (roles[x.user_id] = roles[x.user_id] || []).push(x));
   ADM.users = (p.data || []).map(u => ({...u, roles:roles[u.id] || []}));
   return ADM.users;
