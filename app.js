@@ -567,6 +567,8 @@ function setRate(r){
   const b = $("#plSpd"); if (b) { b.textContent = fmtRate(P.rate); b.classList.toggle("on", P.rate !== 1); }
   const sl = $("#spdRange"); if (sl){ sl.value = P.rate; sl.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); }
   const so = $("#spdOut"); if (so) so.textContent = fmtRate(P.rate);
+  const nr = $("#npRate"); if (nr){ nr.value = P.rate; nr.style.setProperty("--p", ((P.rate - .5) / 1.5 * 100) + "%"); }
+  const no = $("#npRateOut"); if (no) no.textContent = fmtRate(P.rate);
   $$("[data-rate]").forEach(c => c.setAttribute("aria-pressed", String(+c.dataset.rate === P.rate)));
 }
 const fmtRate = r => (Math.round(r * 100) / 100).toString().replace(/^0\./, "0.") + "×";
@@ -685,7 +687,31 @@ function updateTime(){
     $("#npCur").textContent = mmss(c); $("#npDur").textContent = d ? mmss(d) : lenText(P.cur && P.cur.length); }
 }
 /* ---------- full-page player: just the song, the controls and the bars ---------- */
+const NP = { queueOpen:false };
 function viewNowPlaying(){ return `<section class="np" id="np"></section>`; }
+function npQueueHtml(){
+  const items = P.queue.map((id, i) => { const s = DB.songById[id]; if (!s) return "";
+    return `<li class="${i === P.index ? "cur" : ""}"><button type="button" class="npq-song" data-nqi="${i}"><span class="npq-n mono">${i === P.index ? ICON.play : i + 1}</span><span class="grow"><span class="nm">${esc(s.name)}</span><span class="sb">${esc(s.author || "")}</span></span><span class="mono small faint">${lenText(s.length)}</span></button>${i !== P.index ? `<button class="xbtn" data-nqr="${i}" type="button" aria-label="Remove from queue">${ICON.x}</button>` : ""}</li>`; }).join("");
+  return `<div class="npq-head"><div><h3>Queue</h3><span class="small muted">${P.queue.length} song${P.queue.length === 1 ? "" : "s"}${P.source ? " · " + esc(P.source) : ""}</span></div>
+    <div class="btns"><button class="btn sm ghost" id="npqSave" type="button">Save as playlist</button><button class="xbtn" id="npqClose" type="button" aria-label="Close queue">${ICON.x}</button></div></div>
+    <ol class="npq-list">${items}</ol>`;
+}
+function setNpQueue(open){
+  NP.queueOpen = open;
+  const panel = $("#npQueue"), shade = $("#npShade"), btn = $("#npQBtn");
+  if (panel){ panel.classList.toggle("open", open); panel.setAttribute("aria-hidden", String(!open)); panel.inert = !open; }
+  if (shade) shade.classList.toggle("open", open);
+  if (btn){ btn.classList.toggle("on", open); btn.setAttribute("aria-expanded", String(open)); }
+  if (open){ const cur = $("#npQueue li.cur"); if (cur) cur.scrollIntoView({block:"nearest"}); }
+}
+function mountNpQueue(){
+  const panel = $("#npQueue"); if (!panel) return;
+  $("#npqClose").onclick = () => setNpQueue(false);
+  $("#npqSave").onclick = async () => { try { const p = await PL.create("Queue " + new Date().toLocaleDateString(), P.queue.slice()); toast(`Saved as ${p.name}`); } catch(e){ toast(e.message, true); } };
+  $$("[data-nqi]", panel).forEach(b => b.onclick = () => P.load(+b.dataset.nqi, true));
+  $$("[data-nqr]", panel).forEach(b => b.onclick = () => { const i = +b.dataset.nqr; P.queue.splice(i, 1); if (i < P.index) P.index--;
+    const list = $(".npq-list", panel), top = list ? list.scrollTop : 0; panel.innerHTML = npQueueHtml(); mountNpQueue(); const l2 = $(".npq-list", panel); if (l2) l2.scrollTop = top; renderQueue(); });
+}
 function renderNowPlaying(){
   const box = $("#np"); if (!box) return;
   const s = P.cur;
@@ -696,8 +722,11 @@ function renderNowPlaying(){
     return;
   }
   document.title = `${s.name} · GDSR`;
+  const oldList = $("#npQueue .npq-list"), listTop = oldList ? oldList.scrollTop : 0;
   const paused = P.audio.paused, vis = PREFS.visualizer && !PREFS.reduceMotion, vol = Math.round(P.audio.volume * 100);
-  box.innerHTML = `<div class="np-stage">${vis ? `<canvas class="np-vis" data-vis="page" data-bars="auto" aria-hidden="true"></canvas>` : `<div class="np-novis">${ICON.music}<a class="link small" href="#settings-display">Turn on the visualizer to see bars</a></div>`}</div>
+  const rates = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  box.innerHTML = `<button class="ib np-qbtn ${NP.queueOpen ? "on" : ""}" id="npQBtn" type="button" aria-label="Queue" aria-controls="npQueue" aria-expanded="${NP.queueOpen}" title="Queue">${ICON.list}<span>Queue</span></button>
+    <div class="np-stage">${vis ? `<canvas class="np-vis" data-vis="page" data-bars="auto" aria-hidden="true"></canvas>` : `<div class="np-novis">${ICON.music}<a class="link small" href="#settings-display">Turn on the visualizer to see bars</a></div>`}</div>
     <div class="np-meta"><h1><a href="#song-${s.id}">${esc(s.name)}</a></h1><p>${authorLinks(s.author)} · ${esc(TYPE_LABEL[s.type] || "")}</p></div>
     <div class="np-seek"><span id="npCur" class="mono">0:00</span><input type="range" id="npSeek" min="0" max="1000" value="0" aria-label="Seek"><span id="npDur" class="mono">0:00</span></div>
     <div class="np-ctrls">
@@ -707,12 +736,28 @@ function renderNowPlaying(){
       <button class="ib" id="npNext" type="button" aria-label="Next">${ICON.next}</button>
       <button class="ib opt ${P.repeat !== "off" ? "on" : ""}" id="npRep" type="button" aria-label="Repeat: ${P.repeat}" title="Repeat: ${P.repeat}" style="position:relative">${ICON.repeat}${P.repeat === "one" ? "<small>1</small>" : ""}</button>
     </div>
-    <div class="np-vol"><span aria-hidden="true">${ICON.vol}</span><input type="range" class="pl-vol" id="npVol" min="0" max="100" value="${vol}" style="--p:${vol}%" aria-label="Volume"></div>`;
+    <div class="np-vol"><span aria-hidden="true">${ICON.vol}</span><input type="range" class="pl-vol" id="npVol" min="0" max="100" value="${vol}" style="--p:${vol}%" aria-label="Volume"></div>
+    <div class="np-speed" role="group" aria-label="Playback speed">
+      <span class="small muted">Speed</span>
+      <div class="chips">${rates.map(r => `<button class="chip" type="button" data-rate="${r}" aria-pressed="${r === P.rate}">${fmtRate(r)}</button>`).join("")}</div>
+      <input type="range" id="npRate" min="0.5" max="2" step="0.05" value="${P.rate}" style="--p:${(P.rate - .5) / 1.5 * 100}%" aria-label="Playback speed">
+      <output id="npRateOut" class="mono small">${fmtRate(P.rate)}</output>
+      <label class="sp-pitch"><span class="small muted">Keep pitch</span><span class="switch"><input type="checkbox" id="npPitch" ${PREFS.keepPitch ? "checked" : ""}><span></span></span></label>
+    </div>
+    <div class="np-shade ${NP.queueOpen ? "open" : ""}" id="npShade"></div>
+    <aside class="np-queue ${NP.queueOpen ? "open" : ""}" id="npQueue" aria-label="Queue" aria-hidden="${!NP.queueOpen}" ${NP.queueOpen ? "" : "inert"}>${npQueueHtml()}</aside>`;
   $("#npPlay").onclick = () => P.toggle();
   $("#npPrev").onclick = () => P.prev();
   $("#npNext").onclick = () => P.next();
   $("#npShuf").onclick = () => $("#plShuf") && $("#plShuf").click();
   $("#npRep").onclick = () => $("#plRep") && $("#plRep").click();
+  $("#npQBtn").onclick = () => setNpQueue(!NP.queueOpen);
+  $("#npShade").onclick = () => setNpQueue(false);
+  $$("[data-rate]", box).forEach(c => c.onclick = () => setRate(+c.dataset.rate));
+  $("#npRate").addEventListener("input", e => setRate(+e.target.value));
+  $("#npPitch").addEventListener("change", e => { setPref("keepPitch", e.target.checked); applyRate(); });
+  mountNpQueue();
+  { const l = $("#npQueue .npq-list"); if (l) l.scrollTop = listTop; }
   const seek = $("#npSeek");
   seek.addEventListener("input", () => { const d = P.audio.duration; if (d) P.audio.currentTime = seek.value / 1000 * d; });
   $("#npVol").addEventListener("input", e => { P.audio.volume = e.target.value / 100; e.target.style.setProperty("--p", e.target.value + "%"); store.set("volume", P.audio.volume);
@@ -2688,6 +2733,7 @@ function installRowHtml(){
   $("#installBtn").addEventListener("click", installApp);
   if (PWA.standalone) document.body.classList.add("standalone");
   $("#acctBtn").addEventListener("click", e => { e.stopPropagation(); toggleMenu(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && NP.queueOpen) setNpQueue(false); });
   document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); if (!e.target.closest("#speedPop,#plSpd")) toggleSpeed(false); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#acctMenu").hidden){ toggleMenu(false); $("#acctBtn").focus(); } });
   $("#acctMenu").addEventListener("click", e => { if (e.target.closest("a")) toggleMenu(false); });
