@@ -29,6 +29,8 @@ namespace gdsr {
         int demon = 0;               // 1-5 Easy to Extreme Demon; only used when diffs is just Demon
         std::vector<int> lengths;    // 0-5 Tiny to Platformer; empty = any
         bool starred = false;
+        std::string query;           // search text (type 0), or a player ID (type 5); not saved
+        long long song = 0;          // only levels using this Newgrounds song; not saved
 
         matjson::Value toJson() const;
         static GDSearch fromJson(matjson::Value const& v);
@@ -37,4 +39,10 @@ namespace gdsr {
 
     // one page (10 levels). An empty list means the search has run out of pages.
     arc::Future<geode::Result<std::vector<GDLevel>>> fetchLevels(GDSearch search, int page);
+
+    // the player ID a creator's levels are listed under (search type 5)
+    arc::Future<geode::Result<long long>> fetchPlayerID(std::string name);
+
+    // an artist's Newgrounds song IDs, newest first
+    arc::Future<geode::Result<std::vector<long long>>> fetchArtistSongs(std::string artist, int max);
 }

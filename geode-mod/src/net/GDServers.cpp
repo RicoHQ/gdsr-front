@@ -3,6 +3,7 @@
 #include <cctype>
 #include <chrono>
 #include <map>
+#include <algorithm>
 
 using namespace geode::prelude;
 
@@ -50,6 +51,26 @@ static std::string urlDecode(std::string const& s) {
         else out += s[i];
     }
     return out;
+}
+
+static std::string urlEncode(std::string const& s) {
+    std::string out;
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') out += static_cast<char>(c);
+        else out += fmt::format("%{:02X}", c);
+    }
+    return out;
+}
+
+static web::WebRequest boomlings(std::string body) {
+    web::WebRequest req;
+    // the servers reject requests that send a user agent
+    req.userAgent("");
+    req.header("Content-Type", "application/x-www-form-urlencoded");
+    req.header("Accept", "*/*");
+    req.bodyString(std::move(body));
+    req.timeout(std::chrono::seconds(30));
+    return req;
 }
 
 static std::string difficultyName(std::map<std::string, std::string> const& m) {
@@ -184,22 +205,82 @@ std::string GDSearch::summary() const {
 }
 
 arc::Future<Result<std::vector<GDLevel>>> fetchLevels(GDSearch search, int page) {
-    std::string body = fmt::format("gameVersion=22&binaryVersion=45&type={}&str=&diff={}&len={}&page={}&total=0&secret=Wmfd2893gb7",
-        search.type, search.diffs.empty() ? "-" : joined(search.diffs), search.lengths.empty() ? "-" : joined(search.lengths), page);
+    std::string body = fmt::format("gameVersion=22&binaryVersion=45&type={}&str={}&diff={}&len={}&page={}&total=0&secret=Wmfd2893gb7",
+        search.type, urlEncode(search.query), search.diffs.empty() ? "-" : joined(search.diffs), search.lengths.empty() ? "-" : joined(search.lengths), page);
+    if (search.song > 0) body += fmt::format("&song={}&customSong=1", search.song);
     if (search.diffs.size() == 1 && search.diffs[0] == -2 && search.demon >= 1 && search.demon <= 5)
         body += fmt::format("&demonFilter={}", search.demon);
     if (search.starred) body += "&star=1";
 
-    web::WebRequest req;
-    // the servers reject requests that send a user agent
-    req.userAgent("");
-    req.header("Content-Type", "application/x-www-form-urlencoded");
-    req.header("Accept", "*/*");
-    req.bodyString(body);
-    req.timeout(std::chrono::seconds(30));
+    auto req = boomlings(std::move(body));
     auto res = co_await req.post("https://www.boomlings.com/database/getGJLevels21.php");
     if (!res.ok()) co_return Err(fmt::format("Geometry Dash servers: error {}", res.code()));
     co_return parseLevels(res.string().unwrapOr(""));
+}
+
+arc::Future<Result<long long>> fetchPlayerID(std::string name) {
+    auto req = boomlings(fmt::format("gameVersion=22&binaryVersion=45&str={}&page=0&total=0&secret=Wmfd2893gb7", urlEncode(name)));
+    auto res = co_await req.post("https://www.boomlings.com/database/getGJUsers20.php");
+    if (!res.ok()) co_return Err(fmt::format("Geometry Dash servers: error {}", res.code()));
+    auto body = res.string().unwrapOr("");
+    if (body.empty() || body == "-1") co_return Err(fmt::format("No player called {}.", name));
+    // users are split by '|', the page info follows '#'
+    auto users = split(split(body, "#")[0], "|");
+    long long first = 0;
+    for (auto const& u : users) {
+        auto m = pairs(u, ":");
+        long long id = num(m, "2");
+        if (!first) first = id;
+        if (utils::string::toLower(str(m, "1")) == utils::string::toLower(name)) co_return Ok(id);
+    }
+    if (first) co_return Ok(first);
+    co_return Err(fmt::format("No player called {}.", name));
+}
+
+arc::Future<Result<std::vector<long long>>> fetchArtistSongs(std::string artist, int max) {
+    // Newgrounds user pages: <name>.newgrounds.com, letters, digits and dashes only
+    std::string user;
+    for (unsigned char c : artist) {
+        if (std::isalnum(c)) user += static_cast<char>(std::tolower(c));
+        else if (c == ' ' || c == '-' || c == '_') user += '-';
+    }
+    if (user.empty()) co_return Err("Type the song author's Newgrounds name.");
+
+    std::vector<long long> ids;
+    for (int page = 1; page <= 20 && static_cast<int>(ids.size()) < max; page++) {
+        web::WebRequest req;
+        // with this header Newgrounds answers with JSON instead of a full page
+        req.header("X-Requested-With", "XMLHttpRequest");
+        req.timeout(std::chrono::seconds(30));
+        auto res = co_await req.get(fmt::format("https://{}.newgrounds.com/audio/page/{}", user, page));
+        if (res.code() == 404) {
+            if (page == 1) co_return Err(fmt::format("No Newgrounds artist called {}.", artist));
+            break;
+        }
+        if (!res.ok()) {
+            if (ids.empty()) co_return Err(fmt::format("Newgrounds: error {}", res.code()));
+            break;
+        }
+        auto text = res.string().unwrapOr("");
+        size_t before = ids.size();
+        // links look like /audio/listen/123456 (slashes may be escaped in the JSON)
+        for (size_t pos = 0; (pos = text.find("listen", pos)) != std::string::npos; pos += 6) {
+            size_t i = pos + 6;
+            if (i < text.size() && text[i] == '\\') i++;
+            if (i >= text.size() || text[i] != '/') continue;
+            i++;
+            size_t start = i;
+            while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i]))) i++;
+            if (i == start) continue;
+            long long id = std::strtoll(text.substr(start, i - start).c_str(), nullptr, 10);
+            if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+            if (static_cast<int>(ids.size()) >= max) break;
+        }
+        bool more = text.find("\"more\":null") == std::string::npos && text.find("\"more\":\"") != std::string::npos;
+        if (ids.size() == before || !more) break;
+    }
+    if (ids.empty()) co_return Err(fmt::format("{} has no songs on Newgrounds.", artist));
+    co_return Ok(std::move(ids));
 }
 
 }
