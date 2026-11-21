@@ -17,12 +17,12 @@ static std::string idList(std::set<long long> const& ids) {
     return out;
 }
 
-arc::Future<Result<AfkPage>> afkFetchPage(int page, bool wantLevels, bool wantSongs) {
+arc::Future<Result<AfkPage>> afkFetchPage(GDSearch search, int page, bool wantLevels, bool wantSongs) {
     auto fresh = co_await ensureSession();
     if (!fresh) co_return Err(fresh.unwrapErr());
     if (!session().isAdmin) co_return Err("AFK Admin is only for admins.");
 
-    auto fetched = co_await fetchMostDownloaded(page);
+    auto fetched = co_await fetchLevels(std::move(search), page);
     if (!fetched) co_return Err(fetched.unwrapErr());
     auto levels = std::move(fetched).unwrap();
 

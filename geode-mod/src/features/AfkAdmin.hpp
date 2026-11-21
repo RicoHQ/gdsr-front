@@ -22,6 +22,6 @@ namespace gdsr {
         std::string message;
     };
 
-    arc::Future<geode::Result<AfkPage>> afkFetchPage(int page, bool levels, bool songs);
+    arc::Future<geode::Result<AfkPage>> afkFetchPage(GDSearch search, int page, bool levels, bool songs);
     arc::Future<geode::Result<AfkResult>> afkImport(AfkJob job);
 }
