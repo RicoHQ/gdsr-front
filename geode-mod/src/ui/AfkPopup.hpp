@@ -3,6 +3,7 @@
 #include <Geode/Geode.hpp>
 #include <Geode/ui/Popup.hpp>
 #include <Geode/ui/LoadingSpinner.hpp>
+#include <Geode/ui/TextInput.hpp>
 #include <Geode/utils/async.hpp>
 #include <deque>
 #include <functional>
@@ -15,7 +16,8 @@ namespace gdsr {
         bool m_doLevels = true;
         bool m_doSongs = true;
         int m_page = 0;
-        int m_maxPage = 100;
+        bool m_reachedEnd = false;
+        GDSearch m_search;
         int m_checked = 0, m_levels = 0, m_songs = 0, m_errors = 0;
         std::deque<AfkJob> m_queue;
         std::deque<std::string> m_log;
@@ -25,6 +27,9 @@ namespace gdsr {
         CCMenuItemSpriteExtra* m_levelsBtn = nullptr;
         CCMenuItemSpriteExtra* m_songsBtn = nullptr;
         CCMenuItemSpriteExtra* m_resetBtn = nullptr;
+        CCMenuItemSpriteExtra* m_filterBtn = nullptr;
+        geode::TextInput* m_pageInput = nullptr;
+        cocos2d::CCLabelBMFont* m_filterInfo = nullptr;
         cocos2d::CCLabelBMFont* m_stats = nullptr;
         cocos2d::CCLabelBMFont* m_status = nullptr;
         cocos2d::CCNode* m_logNode = nullptr;
@@ -47,6 +52,9 @@ namespace gdsr {
         void onLevels(cocos2d::CCObject*);
         void onSongs(cocos2d::CCObject*);
         void onReset(cocos2d::CCObject*);
+        void onFilters(cocos2d::CCObject*);
+        void setPage(int page);
+        void readPageInput();
 
     public:
         static AfkPopup* create(std::function<void()> onChanged);
