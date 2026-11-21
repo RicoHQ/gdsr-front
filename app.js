@@ -219,7 +219,7 @@ const PREFS = Object.assign({}, PREF_DEFAULTS, store.get("prefs", {}));
 function setPref(k, v){ PREFS[k] = v; store.set("prefs", PREFS); applyPrefs(); }
 function applyPrefs(){ document.body.classList.toggle("compact", !!PREFS.compact); document.body.classList.toggle("reduce-motion", !!PREFS.reduceMotion); }
 const state = {
-  listType:"all", listSort:"score", listQ:"", listMine:"all", lvQ:"", lvDiff:"all", lvSort:"name",
+  listType:"all", listSort:"score", listQ:"", listMine:"all", lvQ:"", lvSort:"name",
   searchQ:"", searchTab:"all", levelQ:{}, levelType:{}, chartSel:{},
   admin:{}, storagePath:"", reqStatus:"pending"
 };
@@ -579,7 +579,7 @@ function initAudioGraph(){
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     VIS.ctx = new AC();
     const src = VIS.ctx.createMediaElementSource(P.audio);
-    VIS.analyser = VIS.ctx.createAnalyser(); VIS.analyser.fftSize = 256; VIS.analyser.smoothingTimeConstant = .78;
+    VIS.analyser = VIS.ctx.createAnalyser(); VIS.analyser.fftSize = 2048; VIS.analyser.smoothingTimeConstant = .78;
     src.connect(VIS.analyser); VIS.analyser.connect(VIS.ctx.destination);
     VIS.data = new Uint8Array(VIS.analyser.frequencyBinCount);
   } catch(_){ VIS.ctx = null; }
@@ -593,8 +593,8 @@ function drawVis(){
   if (VIS.analyser && playing && PREFS.visualizer && !PREFS.reduceMotion) { VIS.analyser.getByteFrequencyData(VIS.data); live = true; }
   let any = false;
   canvases.forEach(cv => {
-    const n = +cv.dataset.bars || 24, dpr = window.devicePixelRatio || 1;
     const w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
+    const n = cv.dataset.bars === "auto" ? Math.max(32, Math.min(160, Math.round(w / 8))) : (+cv.dataset.bars || 24), dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)){ cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
     const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
     const key = cv.dataset.vis + n; const lv = VIS.level[key] = VIS.level[key] || new Array(n).fill(0);
@@ -607,8 +607,10 @@ function drawVis(){
         let m = 0; for (let k = a; k < b; k++) m = Math.max(m, VIS.data[k]); target = m / 255; }
       lv[i] += (target - lv[i]) * (target > lv[i] ? .55 : .14);
       if (lv[i] > .01) any = true;
-      const bh = Math.max(cv.dataset.vis === "big" ? 3 : 2, lv[i] * h);
-      const r = Math.min(bw / 2, 3), x = i * (bw + gap), y = h - bh;
+      const mirror = cv.dataset.vis === "page";
+      const bh = Math.max(cv.dataset.vis === "mini" ? 2 : 3, lv[i] * h * (mirror ? .96 : 1));
+      const r = Math.min(bw / 2, 3), x = i * (bw + gap), y = mirror ? (h - bh) / 2 : h - bh;
+      if (mirror){ g.beginPath(); if (g.roundRect) g.roundRect(x, y, bw, bh, r); else g.rect(x, y, bw, bh); g.fill(); continue; }
       g.beginPath(); if (g.roundRect) g.roundRect(x, y, bw, bh, [r, r, 0, 0]); else g.rect(x, y, bw, bh); g.fill();
     }
   });
@@ -618,6 +620,7 @@ P.audio.volume = store.get("volume", .8);
 function shuffleArr(a){ a = a.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function renderPlayer(){
   const el = $("#player"), s = P.cur;
+  if (route().name === "player") renderNowPlaying();
   if (!s){ el.classList.remove("on"); document.documentElement.style.setProperty("--player-h", "0px"); return; }
   el.classList.add("on");
   const paused = P.audio.paused;
@@ -637,6 +640,7 @@ function renderPlayer(){
     <div class="pl-right">
       <button class="ib" id="plAdd" type="button" aria-label="Add to playlist" title="Add to playlist">${ICON.plus}</button>
       <button class="ib" id="plQ" type="button" aria-label="Queue" title="Queue">${ICON.list}</button>
+      <a class="ib" href="#player" aria-label="Open the player page" title="Open the player page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></a>
       <span class="ib" aria-hidden="true">${ICON.vol}</span>
       <input type="range" class="pl-vol" id="plVol" min="0" max="100" value="${Math.round(P.audio.volume * 100)}" style="--p:${Math.round(P.audio.volume * 100)}%" aria-label="Volume">
     </div></div>`;
@@ -676,6 +680,44 @@ function updateTime(){
   if (document.activeElement !== seek){ seek.value = pct; }
   seek.style.setProperty("--p", pct / 10 + "%");
   $("#plCur").textContent = mmss(c); $("#plDur").textContent = d ? mmss(d) : lenText(P.cur && P.cur.length);
+  const ns = $("#npSeek");
+  if (ns){ if (document.activeElement !== ns) ns.value = pct; ns.style.setProperty("--p", pct / 10 + "%");
+    $("#npCur").textContent = mmss(c); $("#npDur").textContent = d ? mmss(d) : lenText(P.cur && P.cur.length); }
+}
+/* ---------- full-page player: just the song, the controls and the bars ---------- */
+function viewNowPlaying(){ return `<section class="np" id="np"></section>`; }
+function renderNowPlaying(){
+  const box = $("#np"); if (!box) return;
+  const s = P.cur;
+  if (!s){
+    box.innerHTML = `<div class="np-empty">${ICON.music}<h1>Nothing is playing</h1><p class="muted">Start The List from the top, or pick any song with audio.</p>
+      <div class="btns" style="justify-content:center"><button class="btn primary" id="npStart" type="button">${ICON.play} Play The List</button><a class="btn" href="#list">Browse songs</a></div></div>`;
+    $("#npStart").onclick = () => P.playList(ranked(DB.songs).map(x => x.id), 0, "The List");
+    return;
+  }
+  document.title = `${s.name} · GDSR`;
+  const paused = P.audio.paused, vis = PREFS.visualizer && !PREFS.reduceMotion, vol = Math.round(P.audio.volume * 100);
+  box.innerHTML = `<div class="np-stage">${vis ? `<canvas class="np-vis" data-vis="page" data-bars="auto" aria-hidden="true"></canvas>` : `<div class="np-novis">${ICON.music}<a class="link small" href="#settings-display">Turn on the visualizer to see bars</a></div>`}</div>
+    <div class="np-meta"><h1><a href="#song-${s.id}">${esc(s.name)}</a></h1><p>${authorLinks(s.author)} · ${esc(TYPE_LABEL[s.type] || "")}</p></div>
+    <div class="np-seek"><span id="npCur" class="mono">0:00</span><input type="range" id="npSeek" min="0" max="1000" value="0" aria-label="Seek"><span id="npDur" class="mono">0:00</span></div>
+    <div class="np-ctrls">
+      <button class="ib opt ${P.shuffle ? "on" : ""}" id="npShuf" type="button" aria-label="Shuffle" aria-pressed="${P.shuffle}">${ICON.shuffle}</button>
+      <button class="ib" id="npPrev" type="button" aria-label="Previous">${ICON.prev}</button>
+      <button class="ib main" id="npPlay" type="button" aria-label="${paused ? "Play" : "Pause"}">${paused ? ICON.play : ICON.pause}</button>
+      <button class="ib" id="npNext" type="button" aria-label="Next">${ICON.next}</button>
+      <button class="ib opt ${P.repeat !== "off" ? "on" : ""}" id="npRep" type="button" aria-label="Repeat: ${P.repeat}" title="Repeat: ${P.repeat}" style="position:relative">${ICON.repeat}${P.repeat === "one" ? "<small>1</small>" : ""}</button>
+    </div>
+    <div class="np-vol"><span aria-hidden="true">${ICON.vol}</span><input type="range" class="pl-vol" id="npVol" min="0" max="100" value="${vol}" style="--p:${vol}%" aria-label="Volume"></div>`;
+  $("#npPlay").onclick = () => P.toggle();
+  $("#npPrev").onclick = () => P.prev();
+  $("#npNext").onclick = () => P.next();
+  $("#npShuf").onclick = () => $("#plShuf") && $("#plShuf").click();
+  $("#npRep").onclick = () => $("#plRep") && $("#plRep").click();
+  const seek = $("#npSeek");
+  seek.addEventListener("input", () => { const d = P.audio.duration; if (d) P.audio.currentTime = seek.value / 1000 * d; });
+  $("#npVol").addEventListener("input", e => { P.audio.volume = e.target.value / 100; e.target.style.setProperty("--p", e.target.value + "%"); store.set("volume", P.audio.volume);
+    const v = $("#plVol"); if (v){ v.value = e.target.value; v.style.setProperty("--p", e.target.value + "%"); } });
+  updateTime(); startVis();
 }
 function renderQueue(){
   const el = $("#queue"); if (!el.classList.contains("on")) return;
@@ -892,25 +934,108 @@ function mountList(){
 /* =====================================================================
    VIEW: LEVELS
    ===================================================================== */
+/* GD-style search filters: difficulty faces, demon tiers, length, stars */
+const FACE_KEYS = ["na","auto","easy","normal","hard","harder","insane","demon"];
+const FACE_NAME = {na:"N/A", auto:"Auto", easy:"Easy", normal:"Normal", hard:"Hard", harder:"Harder", insane:"Insane", demon:"Demon"};
+const FACE_COLOR = {na:"#7d8a83", auto:DIFF.Auto, easy:DIFF.Easy, normal:DIFF.Normal, hard:DIFF.Hard, harder:DIFF.Harder, insane:DIFF.Insane, demon:DIFF["Hard Demon"]};
+const DEMON_TIERS = ["Easy Demon","Medium Demon","Hard Demon","Insane Demon","Extreme Demon"];
+const LEN_KEYS = ["Tiny","Short","Medium","Long","XL","Platformer"];
+const faceOf = d => !d ? "na" : /Demon$/.test(d) ? "demon" : d.toLowerCase();
+// exact times go into the game's length buckets
+const lenBucket = l => {
+  const raw = String(l.length || "").trim(), named = LEN_KEYS.find(k => k.toLowerCase() === raw.toLowerCase());
+  if (named) return named;
+  const t = parseLen(raw); if (t === null) return null;
+  return t < 10 ? "Tiny" : t < 30 ? "Short" : t < 60 ? "Medium" : t < 120 ? "Long" : "XL";
+};
+// a small original face per difficulty: calmer to angrier, demons get horns
+function diffFace(key, color){
+  const c = color || FACE_COLOR[key] || FACE_COLOR.na;
+  const eyes = {
+    auto:'<path d="M11 15.5q2-2 4 0M21 15.5q2-2 4 0"/>',
+    easy:'<circle cx="13" cy="15" r="1.7" fill="currentColor" stroke="none"/><circle cx="23" cy="15" r="1.7" fill="currentColor" stroke="none"/>',
+    normal:'<circle cx="13" cy="15" r="1.7" fill="currentColor" stroke="none"/><circle cx="23" cy="15" r="1.7" fill="currentColor" stroke="none"/>',
+    hard:'<path d="M10.5 12.5l4 1.2M25.5 12.5l-4 1.2"/><circle cx="13" cy="16" r="1.6" fill="currentColor" stroke="none"/><circle cx="23" cy="16" r="1.6" fill="currentColor" stroke="none"/>',
+    harder:'<path d="M10 12l5 2M26 12l-5 2"/><circle cx="13" cy="16.5" r="1.6" fill="currentColor" stroke="none"/><circle cx="23" cy="16.5" r="1.6" fill="currentColor" stroke="none"/>',
+    insane:'<path d="M9.5 11.5l6 3M26.5 11.5l-6 3"/><circle cx="13.5" cy="17" r="1.8" fill="currentColor" stroke="none"/><circle cx="22.5" cy="17" r="1.8" fill="currentColor" stroke="none"/>',
+    demon:'<path d="M9.5 12l6.5 3.5M26.5 12L20 15.5"/><path d="M12 17.5l3 .8M24 17.5l-3 .8"/>'
+  }[key] || "";
+  const mouth = {
+    na:'<path d="M15 13.5a3 3 0 1 1 4.2 2.8c-.9.4-1.2 1-1.2 1.9M18 21.5h.01"/>',
+    auto:'<path d="M13 21q5 4 10 0"/>', easy:'<path d="M12.5 20.5q5.5 5 11 0"/>', normal:'<path d="M13.5 21.5q4.5 2.5 9 0"/>',
+    hard:'<path d="M14 22.5h8"/>', harder:'<path d="M13.5 23.5q4.5-3 9 0"/>', insane:'<path d="M13 24q5-5 10 0z" fill="currentColor"/>',
+    demon:'<path d="M12 22.5l2.4 2 2.4-2 2.4 2 2.4-2 2.4 2"/>'
+  }[key] || "";
+  const horns = key === "demon" ? `<path d="M7.5 11 4.5-1.5 13.5 6zM28.5 11l3-12.5L22.5 6z" fill="${c}" stroke="#0b1510" stroke-width="1.6" stroke-linejoin="round"/>` : "";
+  return `<svg class="face" viewBox="-2 -4 40 40" aria-hidden="true">${horns}<circle cx="18" cy="18" r="14" fill="${c}" stroke="#0b1510" stroke-width="1.6"/><g fill="none" stroke="#0b1510" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#0b1510">${eyes}${mouth}</g></svg>`;
+}
+const LV_F0 = () => ({faces:[], demons:[], lens:[], stars:"any"});
+state.lvF = state.lvF || LV_F0();
+function levelMatchesFilters(l, f = state.lvF){
+  const face = faceOf(l.difficulty);
+  if (f.faces.length && !f.faces.includes(face)) return false;
+  if (face === "demon" && f.faces.includes("demon") && f.demons.length && !f.demons.includes(l.difficulty)) return false;
+  if (f.lens.length && !f.lens.includes(lenBucket(l))) return false;
+  if (f.stars === "rated" && !(+l.stars > 0)) return false;
+  if (f.stars === "unrated" && +l.stars > 0) return false;
+  return true;
+}
+const lvFilterCount = f => f.faces.length + (f.faces.includes("demon") ? f.demons.length : 0) + f.lens.length + (f.stars !== "any" ? 1 : 0);
+function lvFiltersHtml(){
+  const f = state.lvF, counts = {};
+  DB.levels.forEach(l => { const k = faceOf(l.difficulty); counts[k] = (counts[k] || 0) + 1; counts[l.difficulty] = (counts[l.difficulty] || 0) + 1; });
+  const demonOn = f.faces.includes("demon");
+  return `<div class="lvf" id="lvFilters">
+    <div class="lvf-faces" role="group" aria-label="Difficulty">${FACE_KEYS.map(k => `<button class="lvf-face" type="button" data-face="${k}" aria-pressed="${f.faces.includes(k)}" title="${FACE_NAME[k]} (${counts[k] || 0})">${diffFace(k)}<span>${FACE_NAME[k]}</span><small>${counts[k] || 0}</small></button>`).join("")}</div>
+    ${demonOn ? `<div class="lvf-demons" role="group" aria-label="Demon difficulty">${DEMON_TIERS.map(d => `<button class="lvf-face sm" type="button" data-demon="${d}" aria-pressed="${f.demons.includes(d)}" title="${d} (${counts[d] || 0})">${diffFace("demon", DIFF[d])}<span>${d.replace(" Demon", "")}</span></button>`).join("")}</div>` : ""}
+    <div class="lvf-row">
+      <div class="chips" role="group" aria-label="Length">${LEN_KEYS.map(k => `<button class="chip" type="button" data-len="${k}" aria-pressed="${f.lens.includes(k)}">${k}</button>`).join("")}</div>
+      <div class="chips" role="group" aria-label="Stars">${[["any","Any stars"],["rated","★ Rated"],["unrated","Unrated"]].map(([v, t]) => `<button class="chip" type="button" data-stars="${v}" aria-pressed="${f.stars === v}">${t}</button>`).join("")}</div>
+      ${lvFilterCount(f) ? `<button class="btn sm ghost" type="button" id="lvClear">Clear filters</button>` : ""}
+    </div></div>`;
+}
 function viewLevels(){
   return `${dataNotice()}<section class="hero single"><div><h1>Levels</h1><p class="lead">Pick a level to see every song uploaded to its song ID, ranked by score.</p></div></section>
   <div class="toolbar"><div class="toolbar-right" style="justify-content:flex-start;flex:1 1 100%">
     <label class="field" style="flex:1 1 320px"><span class="sr-only">Search levels</span>${ICON.search}<input id="lvQ" type="search" placeholder="Search by name, ID, creator, verifier…" value="${esc(state.lvQ)}" autocomplete="off"></label>
-    <label><span class="sr-only">Difficulty</span><select class="select" id="lvDiff"><option value="all">All difficulties</option>${DIFF_ORDER.map(d => `<option${state.lvDiff === d ? " selected" : ""}>${d}</option>`).join("")}</select></label>
     ${sortSelect("lvSort", LEVEL_SORTS, state.lvSort, "Sort levels")}
     <a class="btn" href="#request">${ICON.plus} Request a level</a>
-  </div></div><div id="lvBody"></div>`;
+  </div></div><div id="lvFilterBox">${lvFiltersHtml()}</div><p class="small muted" id="lvCount" style="margin:0 0 10px"></p><div id="lvBody"></div>`;
 }
+const LV_PAGE = 48;
+let lvObserver = null;
 function renderLevelsBody(){
-  const s = levelSorter(state.lvSort);
-  const list = DB.levels.filter(l => (state.lvDiff === "all" || l.difficulty === state.lvDiff) && matches(levelHay(l), state.lvQ)).sort(s);
-  $("#lvBody").innerHTML = list.length ? `<div class="grid">${list.map(l => levelCard(l, state.lvQ)).join("")}</div>`
-    : `<div class="table">${emptyState(DB.levels.length ? "No levels match" : "No levels yet", DB.levels.length ? "Try another name, ID or difficulty." : "Request one to get started.")}</div>`;
+  if (lvObserver){ lvObserver.disconnect(); lvObserver = null; }
+  const list = DB.levels.filter(l => levelMatchesFilters(l) && matches(levelHay(l), state.lvQ)).sort(levelSorter(state.lvSort));
+  const body = $("#lvBody");
+  $("#lvCount").textContent = list.length === DB.levels.length ? `${list.length} levels` : `${list.length} of ${DB.levels.length} levels`;
+  if (!list.length){ body.innerHTML = `<div class="table">${emptyState(DB.levels.length ? "No levels match" : "No levels yet", DB.levels.length ? "Try other filters or another name." : "Request one to get started.")}</div>`; return; }
+  body.innerHTML = `<div class="grid" id="lvGrid"></div><div id="lvMore" style="height:1px"></div>`;
+  const grid = $("#lvGrid"), sentinel = $("#lvMore"); let shown = 0;
+  const more = () => {
+    grid.insertAdjacentHTML("beforeend", list.slice(shown, shown + LV_PAGE).map(l => levelCard(l, state.lvQ)).join(""));
+    shown = Math.min(list.length, shown + LV_PAGE);
+    if (shown >= list.length){ sentinel.remove(); if (lvObserver){ lvObserver.disconnect(); lvObserver = null; } }
+  };
+  more();
+  if (shown < list.length && "IntersectionObserver" in window){
+    lvObserver = new IntersectionObserver(e => { if (e.some(x => x.isIntersecting)) more(); }, {rootMargin:"800px 0px"});
+    lvObserver.observe(sentinel);
+  } else while (shown < list.length) more();
+}
+function mountLevelFilters(){
+  const box = $("#lvFilterBox"), f = state.lvF;
+  const redraw = () => { box.innerHTML = lvFiltersHtml(); mountLevelFilters(); renderLevelsBody(); };
+  const flip = (arr, v) => { const i = arr.indexOf(v); if (i < 0) arr.push(v); else arr.splice(i, 1); };
+  $$("[data-face]", box).forEach(b => b.onclick = () => { flip(f.faces, b.dataset.face); if (!f.faces.includes("demon")) f.demons = []; redraw(); });
+  $$("[data-demon]", box).forEach(b => b.onclick = () => { flip(f.demons, b.dataset.demon); redraw(); });
+  $$("[data-len]", box).forEach(b => b.onclick = () => { flip(f.lens, b.dataset.len); redraw(); });
+  $$("[data-stars]", box).forEach(b => b.onclick = () => { f.stars = b.dataset.stars; redraw(); });
+  const c = $("#lvClear", box); if (c) c.onclick = () => { state.lvF = LV_F0(); box.innerHTML = lvFiltersHtml(); mountLevelFilters(); renderLevelsBody(); };
 }
 function mountLevels(){
-  renderLevelsBody();
+  renderLevelsBody(); mountLevelFilters();
   $("#lvQ").addEventListener("input", e => { state.lvQ = e.target.value; renderLevelsBody(); });
-  $("#lvDiff").addEventListener("change", e => { state.lvDiff = e.target.value; renderLevelsBody(); });
   $("#lvSort").addEventListener("change", e => { state.lvSort = e.target.value; renderLevelsBody(); });
 }
 
@@ -2462,7 +2587,7 @@ window.addEventListener("hashchange", () => { if (route().name !== "guess") gues
 function route(){
   const h = decodeURIComponent(location.hash.slice(1)); let m;
   if (!h || h === "list") return {name:"list"};
-  if (["levels","authors","search","login","signup","account","playlists","request","request-song","guess"].includes(h)) return {name:h};
+  if (["levels","authors","search","login","signup","account","playlists","request","request-song","guess","player"].includes(h)) return {name:h};
   if ((m = h.match(/^author-([\w-]+)$/))) return {name:"author", id:m[1]};
   if (h === "authors-ranking") return {name:"authors-ranking"};
   if (h === "settings") return {name:"settings", id:""};
@@ -2475,10 +2600,11 @@ function route(){
   if (/^(access_token|error)=/.test(h)) return {name:"list"};   // auth redirect fragments
   return {name:"404"};
 }
-const NEEDS_DATA = new Set(["authors-ranking","guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
+const NEEDS_DATA = new Set(["player","authors-ranking","guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
   if (listObserver){ listObserver.disconnect(); listObserver = null; }
+  if (lvObserver){ lvObserver.disconnect(); lvObserver = null; }
   document.body.dataset.route = r.name;
   if (r.name === "search" && matchMedia("(max-width:760px)").matches && !state.searchQ) setTimeout(() => hq.focus(), 50);
   $$("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav === r.name || (r.name === "level" && a.dataset.nav === "levels") || ((r.name === "author" || r.name === "authors-ranking") && a.dataset.nav === "authors") || (r.name === "playlist" && a.dataset.nav === "playlists") || (r.name === "request-song" && a.dataset.nav === "request")));
@@ -2501,12 +2627,14 @@ function render(opts = {}){
     case "settings": title = "Settings"; app.innerHTML = viewSettings(r.id); mountSettings(r.id); break;
     case "request": case "request-song": title = "Request"; { const k = r.name === "request-song" ? "song" : "level"; app.innerHTML = viewRequest(k); mountRequest(k); } break;
     case "guess": title = "Guess the Song"; app.innerHTML = viewGuess(); mountGuess(); break;
+    case "player": title = P.cur ? P.cur.name : "Player"; app.innerHTML = viewNowPlaying(); renderNowPlaying(); break;
     case "playlists": title = "Playlists"; app.innerHTML = viewPlaylists(); mountPlaylists(); break;
     case "playlist": title = "Playlist"; app.innerHTML = viewPlaylist(); mountPlaylist(r.id); break;
     case "admin": title = "Admin"; app.innerHTML = viewAdmin(r.id); mountAdmin(r.id); break;
     default: notFound(); title = "Not found";
   }
   document.title = `${title} · GDSR`;
+  if (P.cur) document.documentElement.style.setProperty("--player-h", $("#player").offsetHeight + "px");
   if (opts.keepScroll) window.scrollTo(0, y); else window.scrollTo({top:0, behavior:"instant"});
 }
 function notFound(){ app.innerHTML = `<div class="table">${emptyState("Page not found", "That page doesn't exist or was removed.")}</div><p style="text-align:center;margin-top:16px"><a class="btn" href="#list">Back to The List</a></p>`; }
