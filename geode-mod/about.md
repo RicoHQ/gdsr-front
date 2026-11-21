@@ -1,12 +1,13 @@
 # GDSR
 
-Request or add songs and levels to **[GDSR](https://ricohq.github.io/gdsr-front/)**, the Geometry Dash song ratings site, without leaving the game.
+The [GDSR](https://ricohq.github.io/gdsr-front/) song ratings site, inside Geometry Dash. Sign in with your website account.
 
-Open any level and press the **GDSR** button on the left side of the level page.
+**From the main menu** (GDSR button):
+- Browse the ranked list, filter by type, play songs and rate them.
+- Follow your requests. Admins can play, approve and reject pending requests.
+- **AFK Admin** (admins): goes through the game's most downloaded levels and adds every level and song GDSR doesn't have yet.
+- **Guess the Song**: pick the song types, clip start (beginning or random), level difficulties and clip length (8 s down to 200 ms).
 
-- **Level**: sends the level's name, ID, creator, difficulty, stars, length and song ID.
-- **Song**: uploads the song file straight from your game folder. If you picked a song for the level with **Jukebox**, that song is uploaded instead (you can turn this off in the mod settings).
-- Choose the type (Original, Remix, Cover or Mashup) and fix the name and author before sending.
-- **Admins** add straight to GDSR. Everyone else sends a request that an admin reviews on the website.
-
-Sign in with your GDSR website account. Works on Windows, macOS, Android and iOS.
+**From a level page** (GDSR button on the left):
+- Send the level and its song. The song comes straight from your game folder, or from Jukebox if you picked a NONG.
+- Admins add directly, everyone else sends a request.

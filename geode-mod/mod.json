@@ -10,7 +10,7 @@
 	"name": "GDSR",
 	"version": "v1.2.0",
 	"developer": "RicoHQ",
-	"description": "Browse, play and rate GDSR songs, review requests, AFK Admin imports, Guess the Song, and adding songs and levels from the level page",
+	"description": "Browse, play and rate GDSR songs, review requests and send levels and songs from the game",
 	"repository": "https://github.com/RicoHQ/gdsr-front",
 	"links": {
 		"homepage": "https://ricohq.github.io/gdsr-front/"
