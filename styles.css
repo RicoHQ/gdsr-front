@@ -1043,7 +1043,7 @@ body[data-route="player"] #player{display:none}
 
 /* player page: speed row and the sliding queue */
 .np{position:relative}
-.np-qbtn{position:absolute;top:0;right:0;z-index:3;width:auto;height:36px;padding:0 12px;gap:6px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:13px;font-weight:600}
+.np-qbtn{position:absolute;top:0;right:0;z-index:3;display:inline-flex;align-items:center;width:auto;height:36px;padding:0 12px;gap:6px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:13px;font-weight:600}
 .np-qbtn svg{width:18px;height:18px}
 .np-qbtn.on{border-color:var(--accent-line);color:var(--accent)}
 .np-stage{margin-top:44px}
