@@ -246,8 +246,9 @@ arc::Future<Result<std::vector<long long>>> fetchArtistSongs(std::string artist,
     }
     if (user.empty()) co_return Err("Type the song author's Newgrounds name.");
 
+    if (max <= 0) max = 1000;
     std::vector<long long> ids;
-    for (int page = 1; page <= 20 && static_cast<int>(ids.size()) < max; page++) {
+    for (int page = 1; page <= 60 && static_cast<int>(ids.size()) < max; page++) {
         web::WebRequest req;
         // with this header Newgrounds answers with JSON instead of a full page
         req.header("X-Requested-With", "XMLHttpRequest");
@@ -281,6 +282,60 @@ arc::Future<Result<std::vector<long long>>> fetchArtistSongs(std::string artist,
     }
     if (ids.empty()) co_return Err(fmt::format("{} has no songs on Newgrounds.", artist));
     co_return Ok(std::move(ids));
+}
+
+static std::string urlDecode(std::string const& s) {
+    std::string out;
+    for (size_t i = 0; i < s.size(); i++) {
+        if (s[i] == '%' && i + 2 < s.size() && std::isxdigit(static_cast<unsigned char>(s[i + 1])) && std::isxdigit(static_cast<unsigned char>(s[i + 2]))) {
+            out += static_cast<char>(std::strtol(s.substr(i + 1, 2).c_str(), nullptr, 16));
+            i += 2;
+        } else out += s[i] == '+' ? ' ' : s[i];
+    }
+    return out;
+}
+
+arc::Future<Result<GDSong>> fetchSongInfo(long long id) {
+    // the game's own song lookup: 1~|~id~|~2~|~name~|~...~|~4~|~artist~|~...~|~10~|~url
+    {
+        auto req = boomlings(fmt::format("songID={}&secret=Wmfd2893gb7", id));
+        auto res = co_await req.post("https://www.boomlings.com/database/getGJSongInfo.php");
+        auto body = res.ok() ? res.string().unwrapOr("") : std::string();
+        if (!body.empty() && body[0] != '-') {
+            auto m = pairs(body, "~|~");
+            GDSong song;
+            song.id = id;
+            song.name = str(m, "2");
+            song.artist = str(m, "4");
+            song.url = urlDecode(str(m, "10"));
+            if (!song.url.empty()) co_return Ok(std::move(song));
+        }
+    }
+    // not in the game's database: ask Newgrounds' audio player for the file
+    web::WebRequest req;
+    req.header("X-Requested-With", "XMLHttpRequest");
+    req.timeout(std::chrono::seconds(30));
+    auto res = co_await req.get(fmt::format("https://www.newgrounds.com/audio/load/{}/3", id));
+    if (!res.ok()) co_return Err(fmt::format("Song {}: not on the GD servers or Newgrounds (error {})", id, res.code()));
+    auto json = res.json();
+    if (!json) co_return Err(fmt::format("Song {}: Newgrounds sent an unreadable reply", id));
+    auto v = json.unwrap();
+    GDSong song;
+    song.id = id;
+    song.name = v["title"].asString().unwrapOr("");
+    // the author field can come wrapped in a link
+    {
+        std::string clean, raw = v["author"].asString().unwrapOr("");
+        bool tag = false;
+        for (char c : raw) { if (c == '<') tag = true; else if (c == '>') tag = false; else if (!tag) clean += c; }
+        song.artist = clean;
+    }
+    if (v["sources"].isArray()) for (auto const& src : v["sources"]) {
+        if (src["src"].isString()) { song.url = src["src"].asString().unwrap(); break; }
+    }
+    if (song.url.empty() && v["url"].isString()) song.url = v["url"].asString().unwrap();
+    if (song.url.empty()) co_return Err(fmt::format("Song {}: no download link (it may be removed or not allowed in GD)", id));
+    co_return Ok(std::move(song));
 }
 
 }

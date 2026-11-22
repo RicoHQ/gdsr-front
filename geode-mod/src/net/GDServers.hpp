@@ -43,6 +43,15 @@ namespace gdsr {
     // the player ID a creator's levels are listed under (search type 5)
     arc::Future<geode::Result<long long>> fetchPlayerID(std::string name);
 
-    // an artist's Newgrounds song IDs, newest first
+    // an artist's Newgrounds song IDs, newest first (max <= 0: all of them)
     arc::Future<geode::Result<std::vector<long long>>> fetchArtistSongs(std::string artist, int max);
+
+    struct GDSong {
+        long long id = 0;
+        std::string name;
+        std::string artist;
+        std::string url;
+    };
+    // name, artist and download link for a Newgrounds song: from the GD servers, or Newgrounds if GD doesn't have it
+    arc::Future<geode::Result<GDSong>> fetchSongInfo(long long id);
 }
