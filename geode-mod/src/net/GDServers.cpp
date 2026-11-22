@@ -41,6 +41,8 @@ static std::string str(std::map<std::string, std::string> const& m, std::string 
     return it == m.end() ? "" : it->second;
 }
 
+static std::string urlDecode(std::string const& s);
+
 static std::string urlEncode(std::string const& s) {
     std::string out;
     for (unsigned char c : s) {
