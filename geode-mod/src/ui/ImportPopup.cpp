@@ -11,10 +11,11 @@ using namespace geode::prelude;
 namespace gdsr {
 
 static constexpr float W = 390.f;
-static constexpr float H = 270.f;
+static constexpr float H = 312.f;
 static constexpr size_t LOG_LINES = 6;
 
-static char const* const MODE_NAMES[] = { "Level name", "Creator", "Song author" };
+static char const* const MODE_NAMES[] = { "Level name", "Creator", "Song author", "Level list" };
+static constexpr int MODES = 4;
 
 ImportPopup* ImportPopup::create(std::string query) {
     auto ret = new ImportPopup();
@@ -28,18 +29,29 @@ ImportPopup* ImportPopup::create(std::string query) {
 
 bool ImportPopup::init(std::string query) {
     if (!Popup::init(W, H, "panel.png"_spr)) return false;
-    m_mode = static_cast<ImportMode>(std::clamp<int64_t>(Mod::get()->getSavedValue<int64_t>("import-mode", 0), 0, 2));
+    m_mode = static_cast<ImportMode>(std::clamp<int64_t>(Mod::get()->getSavedValue<int64_t>("import-mode", 0), 0, MODES - 1));
+    m_listType = static_cast<int>(Mod::get()->getSavedValue<int64_t>("import-list", 1));
 
     auto title = ui::label("GDSR IMPORT", "bigFont.fnt", .5f, ui::ACCENT);
     title->setPosition({ W / 2, H - 22.f });
     m_mainLayer->addChild(title);
 
-    for (int i = 0; i < 3; i++) {
-        auto btn = ui::toggle(MODE_NAMES[i], false, 104.f, 20.f, this, menu_selector(ImportPopup::onMode), .32f);
+    for (int i = 0; i < MODES; i++) {
+        auto btn = ui::toggle(MODE_NAMES[i], false, 84.f, 20.f, this, menu_selector(ImportPopup::onMode), .3f);
         btn->setTag(i);
-        btn->setPosition({ W / 2 + (i - 1) * 112.f, H - 46.f });
+        btn->setPosition({ W / 2 + (i - 1.5f) * 90.f, H - 46.f });
         m_buttonMenu->addChild(btn);
         m_modeBtns.push_back(btn);
+    }
+
+    // the game's level lists, for the Level list tab
+    auto const& types = searchTypes();
+    for (size_t i = 0; i < types.size(); i++) {
+        auto btn = ui::toggle(types[i].name, false, 84.f, 18.f, this, menu_selector(ImportPopup::onList), .28f);
+        btn->setTag(static_cast<int>(i));
+        btn->setPosition({ W / 2 + (static_cast<float>(i % 4) - 1.5f) * 90.f, H - 102.f - (i / 4) * 22.f });
+        m_buttonMenu->addChild(btn);
+        m_listBtns.push_back(btn);
     }
 
     m_query = TextInput::create(250.f, "Search...", "chatFont.fnt");
@@ -53,25 +65,25 @@ bool ImportPopup::init(std::string query) {
     m_mainLayer->addChild(m_limitLabel);
     m_limit = TextInput::create(48.f, "2", "chatFont.fnt");
     m_limit->setCommonFilter(CommonFilter::Uint);
-    m_limit->setMaxCharCount(2);
+    m_limit->setMaxCharCount(4);
     m_limit->setPosition({ W - 20.f - 24.f, H - 74.f });
     m_mainLayer->addChild(m_limit);
 
     m_hint = ui::label("", "chatFont.fnt", .48f, ui::FAINT);
     m_hint->setAnchorPoint({ 0.f, .5f });
-    m_hint->setPosition({ 20.f, H - 96.f });
+    m_hint->setPosition({ 20.f, H - 140.f });
     m_mainLayer->addChild(m_hint);
     m_stats = ui::label("", "chatFont.fnt", .5f, ui::TEXT);
     m_stats->setAnchorPoint({ 1.f, .5f });
-    m_stats->setPosition({ W - 18.f, H - 96.f });
+    m_stats->setPosition({ W - 18.f, H - 140.f });
     m_mainLayer->addChild(m_stats);
 
     auto card = ui::card({ W - 32.f, 98.f });
     card->setAnchorPoint({ .5f, 1.f });
-    card->setPosition({ W / 2, H - 108.f });
+    card->setPosition({ W / 2, H - 152.f });
     m_mainLayer->addChild(card);
     m_logNode = CCNode::create();
-    m_logNode->setPosition({ 24.f, H - 120.f });
+    m_logNode->setPosition({ 24.f, H - 164.f });
     m_mainLayer->addChild(m_logNode);
 
     m_status = ui::label("", "chatFont.fnt", .6f, ui::MUTED);
@@ -86,6 +98,7 @@ bool ImportPopup::init(std::string query) {
     m_startBtn->setPosition({ W - 20.f - 48.f, 30.f });
     m_buttonMenu->addChild(m_startBtn);
 
+    m_limit->setPlaceholder(m_mode == ImportMode::SongAuthor ? "all" : "2");
     addLog("Adds every level found, and its song, that GDSR doesn't have yet.", ui::FAINT);
     setStatus("Levels and songs already on GDSR are skipped.", ui::FAINT);
     refresh();
@@ -99,16 +112,23 @@ void ImportPopup::onClose(CCObject* sender) {
 }
 
 void ImportPopup::refresh() {
-    for (int i = 0; i < 3; i++) {
-        ui::setToggle(m_modeBtns[i], MODE_NAMES[i], static_cast<int>(m_mode) == i, 104.f, 20.f, .32f);
+    for (int i = 0; i < MODES; i++) {
+        ui::setToggle(m_modeBtns[i], MODE_NAMES[i], static_cast<int>(m_mode) == i, 84.f, 20.f, .3f);
         ui::setEnabled(m_modeBtns[i], !m_running);
     }
-    bool author = m_mode == ImportMode::SongAuthor;
+    bool author = m_mode == ImportMode::SongAuthor, list = m_mode == ImportMode::LevelList;
+    auto const& types = searchTypes();
+    for (size_t i = 0; i < m_listBtns.size(); i++) {
+        m_listBtns[i]->setVisible(list);
+        ui::setToggle(m_listBtns[i], types[i].name, types[i].id == m_listType, 84.f, 18.f, .28f);
+        ui::setEnabled(m_listBtns[i], !m_running);
+    }
+    m_query->setVisible(!list);
     m_limitLabel->setString(author ? "Songs" : "Pages");
     m_limitLabel->setScale(.5f);
-    if (m_limit->getString().empty()) m_limit->setString(author ? "10" : "2");
-    m_hint->setString(author ? "Top 5 most downloaded levels for each song (Newgrounds name)"
+    m_hint->setString(author ? "All the author's songs (blank = all), plus their top 5 levels each"
         : m_mode == ImportMode::Creator ? "Every level the player uploaded, 10 per page"
+        : list ? "Levels from the chosen list, 10 per page"
         : "Levels whose name matches, 10 per page");
     m_hint->setScale(.48f);
     m_query->setEnabled(!m_running);
@@ -161,6 +181,15 @@ void ImportPopup::onMode(CCObject* sender) {
     if (mode != m_mode) m_limit->setString("");
     m_mode = mode;
     Mod::get()->setSavedValue<int64_t>("import-mode", static_cast<int64_t>(m_mode));
+    m_limit->setPlaceholder(m_mode == ImportMode::SongAuthor ? "all" : "2");
+    refresh();
+}
+
+void ImportPopup::onList(CCObject* sender) {
+    if (m_running) return;
+    auto i = static_cast<size_t>(static_cast<CCNode*>(sender)->getTag());
+    if (i < searchTypes().size()) m_listType = searchTypes()[i].id;
+    Mod::get()->setSavedValue<int64_t>("import-list", m_listType);
     refresh();
 }
 
@@ -172,7 +201,10 @@ void ImportPopup::onStart(CCObject*) {
     }
     if (!signedIn() || !session().isAdmin) { setStatus("Sign in with an admin account first.", ui::DANGER); return; }
     auto query = m_query->getString();
-    int limit = std::max(1, static_cast<int>(std::strtol(m_limit->getString().c_str(), nullptr, 10)));
+    auto limitText = m_limit->getString();
+    // blank: every song for a song author, 2 pages otherwise
+    int limit = limitText.empty() ? (m_mode == ImportMode::SongAuthor ? 0 : 2) : static_cast<int>(std::strtol(limitText.c_str(), nullptr, 10));
+    if (m_mode != ImportMode::SongAuthor) limit = std::max(1, limit);
 
     m_running = true;
     m_errors = 0;
@@ -180,7 +212,7 @@ void ImportPopup::onStart(CCObject*) {
     m_queuedSongs.clear();
     refresh();
     setStatus(m_mode == ImportMode::SongAuthor ? "Finding the author's songs..." : m_mode == ImportMode::Creator ? "Finding the player..." : "Searching...", ui::MUTED);
-    m_planTask.spawn(planImport(m_mode, query, limit), [this](Result<std::vector<ImportStep>> res) {
+    m_planTask.spawn(planImport(m_mode, query, limit, m_listType), [this](Result<std::vector<ImportStep>> res) {
         if (!m_running) return;
         if (!res) { addLog(res.unwrapErr(), ui::DANGER); finish(res.unwrapErr(), ui::DANGER); return; }
         auto steps = std::move(res).unwrap();

@@ -13,6 +13,7 @@ namespace gdsr {
     class ImportPopup : public geode::Popup {
     protected:
         ImportMode m_mode = ImportMode::LevelName;
+        int m_listType = 1;
         bool m_running = false;
         int m_errors = 0;
         int m_checked = 0, m_levels = 0, m_songs = 0;
@@ -22,6 +23,7 @@ namespace gdsr {
         std::deque<std::string> m_log;
 
         std::vector<CCMenuItemSpriteExtra*> m_modeBtns;
+        std::vector<CCMenuItemSpriteExtra*> m_listBtns;
         geode::TextInput* m_query = nullptr;
         geode::TextInput* m_limit = nullptr;
         cocos2d::CCLabelBMFont* m_limitLabel = nullptr;
@@ -46,6 +48,7 @@ namespace gdsr {
         void nextJob(float);
 
         void onMode(cocos2d::CCObject*);
+        void onList(cocos2d::CCObject*);
         void onStart(cocos2d::CCObject*);
         void onClose(cocos2d::CCObject*) override;
 
