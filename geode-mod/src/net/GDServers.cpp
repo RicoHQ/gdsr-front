@@ -41,18 +41,6 @@ static std::string str(std::map<std::string, std::string> const& m, std::string 
     return it == m.end() ? "" : it->second;
 }
 
-static std::string urlDecode(std::string const& s) {
-    std::string out;
-    for (size_t i = 0; i < s.size(); i++) {
-        if (s[i] == '%' && i + 2 < s.size() && std::isxdigit(static_cast<unsigned char>(s[i + 1])) && std::isxdigit(static_cast<unsigned char>(s[i + 2]))) {
-            out += static_cast<char>(std::stoi(s.substr(i + 1, 2), nullptr, 16));
-            i += 2;
-        } else if (s[i] == '+') out += ' ';
-        else out += s[i];
-    }
-    return out;
-}
-
 static std::string urlEncode(std::string const& s) {
     std::string out;
     for (unsigned char c : s) {
