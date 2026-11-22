@@ -2583,7 +2583,7 @@ function renderGuessRound(){
   const box = $("#guessBox"); if (!box) return;
   const r = G.rounds[G.i], lvl = guessLevel(), done = r.pick !== null;
   box.innerHTML = `<div class="card guess-play">
-    <div class="g-hud"><span>Round <b>${G.i + 1}</b>/${G.rounds.length}</span><span>Score <b class="mono" id="gScore">${G.score}</b></span><span>Streak <b>${G.streak}</b></span><span class="pill">${lvl.label} · ${lvl.clip < 1 ? Math.round(lvl.clip * 1000) + "ms" : lvl.clip + "s"}</span></div>
+    <div class="g-hud"><span>Round <b>${G.i + 1}</b>/${G.rounds.length}</span><span>Score <b class="mono" id="gScore">${G.score}</b></span><span>Streak <b>${G.streak}</b></span><span class="pill">${lvl.label} · ${lvl.clip < 1 ? Math.round(lvl.clip * 1000) + "ms" : lvl.clip + "s"}</span><button class="btn sm ghost g-restart" type="button" id="gRestart" title="New random rounds, same settings">${ICON.shuffle} Restart</button></div>
     <div class="g-stage">
       <button class="g-play" type="button" id="gPlay" aria-label="Play clip">${ICON.play}<svg class="g-ring" viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/><circle id="gRing" cx="60" cy="60" r="54"/></svg></button>
       <p class="muted small" id="gHint">${done ? "" : r.plays ? `Played ${r.plays}× · ${3 - r.plays} replay${3 - r.plays === 1 ? "" : "s"} left` : "Press play (or Space) to hear the clip"}</p>
@@ -2596,6 +2596,7 @@ function renderGuessRound(){
          <span class="row-gap"><button class="btn" type="button" id="gHear">${ICON.vol} Hear more</button><button class="btn primary" type="button" id="gNext">${G.i + 1 < G.rounds.length ? "Next round" : "See results"}</button></span>`
       : `<button class="btn ghost" type="button" id="gQuit">Quit</button><button class="btn" type="button" id="gSkip">Skip</button>`}</div>
   </div>`;
+  $("#gRestart").addEventListener("click", () => { guessStop(); startGuess(); toast("New game"); });
   $("#gPlay").addEventListener("click", () => done ? guessPlay(r, 15) : guessPlay(r));
   $$(".g-choice", box).forEach(b => b.addEventListener("click", () => guessPick(b.dataset.id)));
   if (done){ $("#gNext").addEventListener("click", guessNext); $("#gHear").addEventListener("click", () => guessPlay(r, 15)); $("#gNext").focus(); }
