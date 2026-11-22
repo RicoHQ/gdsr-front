@@ -900,7 +900,8 @@ function viewList(){
   return `${dataNotice()}
   <section class="hero">
     <div><h1>The List</h1>
-      <p class="lead">Every mashup, cover, remix and NONG, ranked by community score from 0 to 100.</p></div>
+      <p class="lead">Every mashup, cover, remix and NONG, ranked by community score from 0 to 100.</p>
+      <div class="btns" style="margin-top:14px"><button class="btn primary" type="button" data-rate-run>${ICON.shuffle} Rate random songs</button></div></div>
     <div class="stats">
       <div class="stat"><b>${DB.songs.length}</b><span>Songs</span></div>
       <div class="stat"><b>${DB.songs.filter(s => s.type === "mashup").length}</b><span>Mashups</span></div>
@@ -1392,6 +1393,42 @@ function renderChartActions(){
   const fp = $("#favPlay");
   if (fp) fp.onclick = () => { if (!P.cur || P.cur.id !== s.id) P.playOne(s.id); setTimeout(() => P.seekTo(i * CONFIG.BUCKET), P.cur && P.cur.id === s.id && P.audio.readyState > 0 ? 0 : 400); };
 }
+/* rating run: random songs you haven't rated, one after another */
+const RR = { on:false, cur:null, done:0, skipped:new Set(), advancing:false };
+const rrPool = () => DB.songs.filter(s => s.audio_file && !ME.rated.has(s.id) && !RR.skipped.has(s.id) && String(s.id) !== String(RR.cur));
+function rrNext(){
+  if (!ME.user){ toast("Sign in to rate songs"); location.hash = "login"; return; }
+  const pool = rrPool();
+  if (!pool.length){
+    const done = RR.done; rrStop();
+    toast(done ? `That's every song with audio. You rated ${done} this run.` : "You've rated every song with audio.");
+    return;
+  }
+  const s = pool[Math.floor(Math.random() * pool.length)];
+  RR.on = true; RR.cur = String(s.id); RR.advancing = false;
+  location.hash = "song-" + s.id;
+  P.playOne(s.id);
+}
+function rrStop(){ RR.on = false; RR.cur = null; RR.advancing = false; const b = $("#rrBar"); if (b) b.remove(); }
+function renderRateRun(){
+  const r = route();
+  if (!RR.on || r.name !== "song" || String(r.id) !== RR.cur) return;
+  const s = DB.songById[RR.cur] || DB.songs.find(x => String(x.id) === RR.cur); if (!s) return;
+  const rated = ME.rated.has(s.id), faved = !!(songCtx.song && songCtx.song.id === s.id && songCtx.myFav), both = rated && faved;
+  let bar = $("#rrBar");
+  if (!bar){ bar = document.createElement("section"); bar.id = "rrBar"; bar.className = "rr-bar"; bar.setAttribute("aria-live", "polite"); app.prepend(bar); }
+  const step = (ok, n, text) => `<li class="${ok ? "ok" : ""}"><span class="rr-dot">${ok ? "✓" : n}</span>${text}</li>`;
+  bar.innerHTML = `<div class="rr-main"><b>Rating random songs</b><span class="small muted">${RR.done} rated this run · ${rrPool().length} unrated left</span></div>
+    <ol class="rr-steps">${step(rated, 1, `Rate it <a class="link small" href="#rateCard" data-rr-jump="rateCard">jump</a>`)}${step(faved, 2, `Pick your favourite part <a class="link small" href="#chart" data-rr-jump="chart">jump</a>`)}</ol>
+    <div class="btns">${both ? `<span class="small" style="color:var(--accent)">Next song…</span>` : `<button class="btn sm" type="button" id="rrSkip">Skip</button>`}<button class="btn sm ghost" type="button" id="rrStop">Stop</button></div>`;
+  $$("[data-rr-jump]", bar).forEach(a => a.onclick = e => { e.preventDefault(); const t = $("#" + a.dataset.rrJump); if (t) t.scrollIntoView({behavior:"smooth", block:"center"}); });
+  const sk = $("#rrSkip", bar); if (sk) sk.onclick = () => { RR.skipped.add(s.id); rrNext(); };
+  $("#rrStop", bar).onclick = () => { rrStop(); toast(RR.done ? "Rating run stopped" : "Stopped"); };
+  if (both && !RR.advancing){
+    RR.advancing = true; RR.done++;
+    setTimeout(() => { if (RR.on && RR.cur === String(s.id)) rrNext(); }, 1400);
+  }
+}
 async function saveFav(time){
   const s = songCtx.song;
   try {
@@ -1400,7 +1437,7 @@ async function saveFav(time){
     await refreshFavs(); toast(`Favourite set to ${mmss(time)}`);
   } catch(e){ toast(e.message, true); }
 }
-async function refreshFavs(){ await loadSongExtras(songCtx.song); if (songCtx.myFav) ME.faved.add(songCtx.song.id); else ME.faved.delete(songCtx.song.id); drawChart(); renderChartActions(); }
+async function refreshFavs(){ await loadSongExtras(songCtx.song); if (songCtx.myFav) ME.faved.add(songCtx.song.id); else ME.faved.delete(songCtx.song.id); drawChart(); renderChartActions(); renderRateRun(); }
 async function mountSong(s){
   bindCopy(app); bindPlayButtons(app, [s.id, ...songsFor(s.song_id).filter(x => x.id !== s.id).map(x => x.id)]); startVis();
   $("#songAdd").onclick = () => openAddToPlaylist(s.id);
@@ -1412,9 +1449,10 @@ async function mountSong(s){
   $("#songQueue").onclick = () => P.enqueue(s.id);
   $("#rateCard").innerHTML = `<h3>Rate</h3><p class="muted small">Loading…</p>`;
   $("#chart").innerHTML = `<div class="skel" style="height:200px;border:0"></div>`;
+  renderRateRun();
   await loadSongExtras(s);
   if (route().id !== s.id) return;
-  renderRateCard(); drawChart(); renderChartActions();
+  renderRateCard(); drawChart(); renderChartActions(); renderRateRun();
   const el = $("#chart");
   el.addEventListener("keydown", ev => {
     const n = heat().length, cur = state.chartSel[s.id] !== undefined ? state.chartSel[s.id] : argmax(heat());
@@ -2647,6 +2685,7 @@ function route(){
 const NEEDS_DATA = new Set(["player","authors-ranking","guess","list","levels","authors","author","level","song","search","request","request-song","playlists","playlist","admin","account"]);
 function render(opts = {}){
   const r = route(), y = window.scrollY;
+  if (RR.on && !(r.name === "song" && String(r.id) === RR.cur)) rrStop();
   if (listObserver){ listObserver.disconnect(); listObserver = null; }
   if (lvObserver){ lvObserver.disconnect(); lvObserver = null; }
   document.body.dataset.route = r.name;
@@ -2734,6 +2773,11 @@ function installRowHtml(){
   $("#acctBtn").addEventListener("click", e => { e.stopPropagation(); toggleMenu(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && NP.queueOpen) setNpQueue(false); });
   document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) toggleMenu(false); if (!e.target.closest("#speedPop,#plSpd,#npSpd")) toggleSpeed(false); });
+  document.addEventListener("click", e => {
+    if (!e.target.closest("[data-rate-run]")) return;
+    if (!ME.ready){ toast("Still loading your ratings, try again in a second"); return; }
+    RR.done = 0; RR.skipped.clear(); rrNext();
+  });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#acctMenu").hidden){ toggleMenu(false); $("#acctBtn").focus(); } });
   $("#acctMenu").addEventListener("click", e => { if (e.target.closest("a")) toggleMenu(false); });
   renderHeader();

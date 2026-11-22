@@ -1065,3 +1065,14 @@ body[data-route="player"] #player{display:none}
 .npq-n svg{width:14px;height:14px;color:var(--accent)}
 .npq-list li.cur .nm{color:var(--accent)}
 @media (prefers-reduced-motion:reduce){.np-queue,.np-queue.open,.np-shade{transition:none}}
+
+/* rating run bar on the song page */
+.rr-bar{position:sticky;top:calc(var(--hdr-h) + 8px);z-index:20;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 18px;margin:0 0 16px;padding:12px 16px;background:var(--surface);border:1px solid var(--accent-line);border-radius:var(--radius);box-shadow:0 10px 30px -18px #000}
+.rr-main{display:grid;gap:2px}
+.rr-steps{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px 18px}
+.rr-steps li{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.rr-steps li.ok{color:var(--text)}
+.rr-dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;border:1px solid var(--border);color:var(--faint);flex:none}
+.rr-steps li.ok .rr-dot{background:var(--accent);border-color:var(--accent);color:#06210f}
+.rr-bar .btns{margin:0}
+@media (max-width:640px){.rr-bar{top:calc(var(--hdr-h) + 4px);padding:10px 12px}}
