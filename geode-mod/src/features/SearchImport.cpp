@@ -36,17 +36,28 @@ static arc::Future<Result<std::vector<long long>>> gdsrSongsBy(std::string autho
     co_return Ok(std::move(ids));
 }
 
-arc::Future<Result<std::vector<ImportStep>>> planImport(ImportMode mode, std::string query, int limit) {
+arc::Future<Result<std::vector<ImportStep>>> planImport(ImportMode mode, std::string query, int limit, int listType) {
     auto fresh = co_await ensureSession();
     if (!fresh) co_return Err(fresh.unwrapErr());
     if (!session().isAdmin) co_return Err("Importing is only for admins.");
 
     query = trimmed(query);
-    if (query.empty()) co_return Err("Type something to search for.");
-    limit = std::clamp(limit, 1, 50);
+    if (query.empty() && mode != ImportMode::LevelList) co_return Err("Type something to search for.");
+    // songs: 0 means every song the artist has
+    limit = mode == ImportMode::SongAuthor ? (limit <= 0 ? 0 : std::min(limit, 1000)) : std::clamp(limit, 1, 200);
     std::vector<ImportStep> steps;
 
-    if (mode == ImportMode::LevelName) {
+    if (mode == ImportMode::LevelList) {
+        std::string name = "Level list";
+        for (auto const& t : searchTypes()) if (t.id == listType) name = t.name;
+        for (int p = 0; p < limit; p++) {
+            ImportStep s;
+            s.search.type = listType;
+            s.page = p;
+            s.label = fmt::format("{} page {}", name, p + 1);
+            steps.push_back(std::move(s));
+        }
+    } else if (mode == ImportMode::LevelName) {
         for (int p = 0; p < limit; p++) {
             ImportStep s;
             s.search.type = 0;
@@ -73,7 +84,7 @@ arc::Future<Result<std::vector<ImportStep>>> planImport(ImportMode mode, std::st
         auto known = co_await gdsrSongsBy(query);
         auto knownIDs = std::move(known).unwrapOr(std::vector<long long>{});
         for (auto id : knownIDs) {
-            if (static_cast<int>(songs.size()) >= limit) break;
+            if (limit && static_cast<int>(songs.size()) >= limit) break;
             if (std::find(songs.begin(), songs.end(), id) == songs.end()) songs.push_back(id);
         }
         if (songs.empty()) co_return Err(ng ? std::string("No songs found.") : ng.unwrapErr());
@@ -83,6 +94,7 @@ arc::Future<Result<std::vector<ImportStep>>> planImport(ImportMode mode, std::st
             s.search.song = id;
             s.take = LEVELS_PER_SONG;
             s.label = fmt::format("Song {}", id);
+            s.artist = query;
             steps.push_back(std::move(s));
         }
     }
@@ -101,9 +113,44 @@ arc::Future<Result<AfkPage>> runImportStep(ImportStep step, std::set<long long> 
     AfkPage out;
     out.page = step.page;
     out.checked = static_cast<int>(levels.size());
-    auto jobs = co_await afkJobsFor(std::move(levels), true, true, std::move(queuedSongs));
+    auto jobs = co_await afkJobsFor(std::move(levels), true, true, queuedSongs);
     if (!jobs) co_return Err(jobs.unwrapErr());
     out.jobs = std::move(jobs).unwrap();
+
+    // song author: add the song itself when none of its levels did
+    long long songID = step.search.song;
+    if (songID > 0 && !queuedSongs.contains(songID)) {
+        auto covering = std::find_if(out.jobs.begin(), out.jobs.end(), [&](AfkJob const& j) { return j.addSong && j.level.songID == songID; });
+        bool covered = covering != out.jobs.end();
+        // a level can list the song without a download link; get one from the song lookup
+        if (covered && covering->level.songUrl.empty()) {
+            auto info = co_await fetchSongInfo(songID);
+            if (info) {
+                auto song = info.unwrap();
+                covering->level.songUrl = song.url;
+                if (covering->level.songName.empty()) covering->level.songName = song.name;
+                if (covering->level.songArtist.empty()) covering->level.songArtist = song.artist.empty() ? step.artist : song.artist;
+            }
+        }
+        if (!covered) {
+            auto have = co_await rest("GET", fmt::format("songs?select=song_id&song_id=eq.{}&limit=1", songID));
+            if (!have) co_return Err(have.unwrapErr());
+            auto rows = have.unwrap();
+            if (!rows.isArray() || rows.size() == 0) {
+                auto info = co_await fetchSongInfo(songID);
+                if (!info) co_return Err(info.unwrapErr());
+                auto song = info.unwrap();
+                AfkJob job;
+                job.addSong = true;
+                job.level.songID = songID;
+                job.level.songName = song.name;
+                job.level.songArtist = song.artist.empty() ? step.artist : song.artist;
+                job.level.songUrl = song.url;
+                job.level.name = song.name.empty() ? fmt::format("Song {}", songID) : song.name;
+                out.jobs.push_back(std::move(job));
+            }
+        }
+    }
     co_return Ok(std::move(out));
 }
 
