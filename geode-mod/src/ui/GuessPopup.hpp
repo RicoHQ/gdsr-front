@@ -56,6 +56,7 @@ namespace gdsr {
         void onNext(cocos2d::CCObject*);
         void onAgain(cocos2d::CCObject*);
         void onQuit(cocos2d::CCObject*);
+        void onRestart(cocos2d::CCObject*);
 
     public:
         static GuessPopup* create(GuessConfig cfg, std::function<void()> onDone);

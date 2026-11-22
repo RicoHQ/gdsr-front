@@ -142,6 +142,11 @@ void GuessPopup::buildRound() {
     auto const& lvl = m_cfg.gameLevel();
     bool done = !r.pick.empty();
 
+    // new random rounds with the same settings
+    auto restart = ui::iconButton("ic_refresh.png"_spr, ui::Style::Dark, 24.f, this, menu_selector(GuessPopup::onRestart));
+    restart->setPosition({ W - 22.f, H - 22.f });
+    m_menu->addChild(restart);
+
     m_hud->setString(fmt::format("Round {}/{}     Score {}     Streak {}     {} - {}{}", m_index + 1, m_rounds.size(), m_score, m_streak,
         lvl.label, clipText(lvl.clip), m_cfg.randomStart ? " - random part" : "").c_str());
 
@@ -387,6 +392,12 @@ void GuessPopup::buildResults() {
 
 void GuessPopup::onAgain(CCObject*) { m_audio.clear(); newGame(); }
 void GuessPopup::onQuit(CCObject*) { onClose(nullptr); }
+
+void GuessPopup::onRestart(CCObject*) {
+    if (Player::get()->id() == GUESS_PLAYER_ID) Player::get()->stop();
+    m_audio.clear();
+    newGame();
+}
 
 void GuessPopup::keyDown(enumKeyCodes key, double timestamp) {
     if (!m_finished && !m_rounds.empty()) {
