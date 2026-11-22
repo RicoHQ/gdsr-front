@@ -1,3 +1,6 @@
+# v1.5.1
+- Guess the Song: restart button (top right) for new random rounds with the same settings.
+
 # v1.5.0
 - Import, song author: adds every song the artist has on Newgrounds (leave Songs blank for all), even songs no level uses yet. Each song still brings its top 5 most downloaded levels.
 - Import: songs without a download link in the level data are looked up on the GD servers, then on Newgrounds.
