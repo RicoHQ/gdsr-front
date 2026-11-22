@@ -1,3 +1,8 @@
+# v1.5.0
+- Import, song author: adds every song the artist has on Newgrounds (leave Songs blank for all), even songs no level uses yet. Each song still brings its top 5 most downloaded levels.
+- Import: songs without a download link in the level data are looked up on the GD servers, then on Newgrounds.
+- Import: new Level list tab: most downloaded, most liked, trending, recent, featured, magic, awarded and Hall of Fame.
+
 # v1.4.0
 - Admins: opening GDSR on a level page adds every Jukebox song you have for that song ID as a NONG (skips songs already on GDSR). Can be turned off in the settings.
 - Admins: GDSR button on the level search screen. It adds the levels and songs found by level name, creator, or song author (the top 5 most downloaded levels for each of the author's songs).
