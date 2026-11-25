@@ -1,3 +1,4 @@
+#include <set>
 #include <Geode/Geode.hpp>
 #include <Geode/modify/LevelInfoLayer.hpp>
 #include <Geode/modify/MenuLayer.hpp>
@@ -46,7 +47,18 @@ class $modify(GDSRLevelInfoLayer, LevelInfoLayer) {
         if (m_exactLengthLabel) exact = m_exactLengthLabel->getString();
         if (auto popup = gdsr::SubmitPopup::create(m_level, exact)) popup->show();
         // admins: send this song ID's Jukebox songs to GDSR in the background
-        if (m_level->m_songID > 0) gdsr::syncJukeboxSongs(m_level->m_songID);
+        std::set<int> ids;
+        if (m_level->m_songID > 0) ids.insert(m_level->m_songID);
+        std::string extra = m_level->m_songIDs;
+        size_t at = 0;
+        while (at < extra.size()) {
+            auto comma = extra.find(',', at);
+            auto part = extra.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+            if (auto id = geode::utils::numFromString<int>(part); id && id.unwrap() > 0) ids.insert(id.unwrap());
+            if (comma == std::string::npos) break;
+            at = comma + 1;
+        }
+        for (int id : ids) gdsr::syncJukeboxSongs(id);
     }
 };
 
