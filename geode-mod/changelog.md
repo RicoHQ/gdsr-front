@@ -1,3 +1,8 @@
+# v1.5.2
+- Audio: songs open straight from the file, like the game does, fixing songs that refused to play. Broken cached audio is thrown away and downloaded again, and errors now say what FMOD didn't like.
+- Jukebox auto-add: also adds the NONGs listed in your Jukebox song indexes (like Song File Hub), not only the ones you downloaded, for every song a level uses.
+- Jukebox auto-add: shows notifications while it works, and when there's nothing to add.
+
 # v1.5.1
 - Guess the Song: restart button (top right) for new random rounds with the same settings.
 
