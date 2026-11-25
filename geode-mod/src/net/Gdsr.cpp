@@ -1,5 +1,6 @@
 #include "Gdsr.hpp"
 #include "../Config.hpp"
+#include "../audio/AudioSniff.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -271,9 +272,20 @@ arc::Future<Result<std::filesystem::path>> fetchAudio(std::string objectPath) {
     auto dir = Mod::get()->getSaveDir() / "audio-cache";
     auto dest = dir / cacheName(objectPath);
     std::error_code ec;
-    if (std::filesystem::exists(dest, ec) && std::filesystem::file_size(dest, ec) > 0) co_return Ok(dest);
+    if (std::filesystem::exists(dest, ec) && std::filesystem::file_size(dest, ec) > 0) {
+        if (audioExtOfFile(dest)) co_return Ok(dest);
+        // a broken copy from an older version: throw it away and download again
+        log::warn("GDSR: cached audio {} isn't audio, downloading again", dest.filename().string());
+        std::filesystem::remove(dest, ec);
+    }
     auto res = co_await downloadAudio(objectPath, dest);
     if (!res) co_return Err(res.unwrapErr());
+    if (!audioExtOfFile(dest)) {
+        auto preview = textPreview(dest);
+        log::warn("GDSR: downloaded {} isn't audio: {}", objectPath, preview);
+        std::filesystem::remove(dest, ec);
+        co_return Err("The server didn't send an audio file. Try again in a moment.");
+    }
     co_return Ok(dest);
 }
 
