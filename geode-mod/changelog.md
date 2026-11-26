@@ -1,3 +1,6 @@
+# v1.6.0
+- Admins: Edit button on every song's menu. Change the name, author, song ID, length and type without leaving the game.
+
 # v1.5.2
 - Audio: songs open straight from the file, like the game does, fixing songs that refused to play. Broken cached audio is thrown away and downloaded again, and errors now say what FMOD didn't like.
 - Jukebox auto-add: also adds the NONGs listed in your Jukebox song indexes (like Song File Hub), not only the ones you downloaded, for every song a level uses.
