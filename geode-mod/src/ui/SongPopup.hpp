@@ -46,6 +46,7 @@ namespace gdsr {
 
         void onPlay(cocos2d::CCObject*);
         void onSite(cocos2d::CCObject*);
+        void onEdit(cocos2d::CCObject*);
         void onSave(cocos2d::CCObject*);
         void onRemove(cocos2d::CCObject*);
         void onSignIn(cocos2d::CCObject*);

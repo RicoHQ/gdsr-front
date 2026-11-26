@@ -1,4 +1,5 @@
 #include "SongPopup.hpp"
+#include "SongEditPopup.hpp"
 #include "LoginPopup.hpp"
 #include "Theme.hpp"
 #include "../audio/Player.hpp"
@@ -63,6 +64,11 @@ bool SongPopup::init(std::string songId, std::function<void()> onChanged) {
     m_playBtn->setPosition({ W - 20.f - 12.f - 37.f - 70.f, H - 92.f });
     m_buttonMenu->addChild(m_playBtn);
     if (s->audioFile.empty()) ui::setEnabled(m_playBtn, false);
+    if (signedIn() && session().isAdmin) {
+        auto edit = ui::button("Edit", ui::Style::Dark, 44.f, 20.f, this, menu_selector(SongPopup::onEdit), .32f);
+        edit->setPosition({ W - 20.f - 22.f, H - 20.f });
+        m_buttonMenu->addChild(edit);
+    }
     auto site = ui::button("Website", ui::Style::Dark, 64.f, 24.f, this, menu_selector(SongPopup::onSite), .32f);
     site->setPosition({ W - 20.f - 12.f - 32.f, H - 92.f });
     m_buttonMenu->addChild(site);
@@ -197,6 +203,20 @@ void SongPopup::onPlay(CCObject*) {
         m_lastKey = "?";
         refreshPlay();
     });
+}
+
+void SongPopup::onEdit(CCObject*) {
+    if (!signedIn() || !session().isAdmin) return;
+    Ref<SongPopup> self = this;
+    auto popup = SongEditPopup::create(m_songId, [self] {
+        // reopen with the new details; the catalog was already reloaded
+        auto id = self->m_songId;
+        auto changed = self->m_onChanged;
+        self->onClose(nullptr);
+        if (changed) changed();
+        if (catalog().byId(id)) if (auto again = SongPopup::create(id, changed)) again->show();
+    });
+    if (popup) popup->show();
 }
 
 void SongPopup::onSite(CCObject*) {
